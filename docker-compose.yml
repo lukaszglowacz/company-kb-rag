@@ -1,22 +1,27 @@
-# Placeholder — implemented in feat/etap-7-docker
-version: "3.9"
-
 services:
   backend:
     build: ./backend
     ports:
       - "8000:8000"
+    env_file: .env
     networks:
       - kb-network
+    restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       - backend
     networks:
       - kb-network
+    restart: unless-stopped
 
 networks:
   kb-network:
