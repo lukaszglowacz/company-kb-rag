@@ -31,7 +31,8 @@ export async function queryStream(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
     });
-  } catch {
+  } catch (err) {
+    console.error(err);
     callbacks.onError("Network error — could not reach the server.");
     return;
   }
@@ -71,7 +72,8 @@ export async function queryStream(
         }
       }
     }
-  } catch {
+  } catch (err) {
+    console.error(err);
     callbacks.onError("Stream interrupted unexpectedly.");
   }
 }

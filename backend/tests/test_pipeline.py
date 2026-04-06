@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import MagicMock
 
@@ -11,6 +12,26 @@ from rag.pipeline import (
     QueryResult,
 )
 from rag.store import VectorStore
+
+
+def _make_streaming_client_mock(tokens: list[str]) -> MagicMock:
+    mock_stream = MagicMock()
+    mock_stream.text_stream = iter(tokens)
+    mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+    mock_stream.__exit__ = MagicMock(return_value=False)
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = mock_stream
+    return mock_client
+
+
+def _make_streaming_pipeline(store: VectorStore, tokens: list[str]) -> RAGPipeline:
+    embedding_service = MagicMock(spec=EmbeddingService)
+    embedding_service.get_embedding.side_effect = EmbeddingService.mock_embedding
+    return RAGPipeline(
+        store=store,
+        embedding_service=embedding_service,
+        anthropic_client=_make_streaming_client_mock(tokens),
+    )
 
 
 def _make_client_mock(text: str = "Mocked answer") -> MagicMock:
@@ -175,3 +196,69 @@ def test_summarize_with_empty_input_still_calls_llm() -> None:
     pipeline = _make_pipeline(VectorStore())
     result = pipeline.summarize("")
     assert isinstance(result, str)
+
+
+# ── stream_query ───────────────────────────────────────────────────────────────
+
+def test_stream_query_first_event_is_chunks() -> None:
+    store = VectorStore()
+    chunks = [Chunk(text="Remote work requires VPN.", source="it.md", index=0)]
+    store.add(chunks, [EmbeddingService.mock_embedding(chunks[0].text)])
+
+    pipeline = _make_streaming_pipeline(store, tokens=["Answer"])
+    events = list(pipeline.stream_query("VPN policy?"))
+
+    assert events[0].startswith("event: chunks\n")
+
+
+def test_stream_query_chunks_event_contains_valid_json() -> None:
+    store = VectorStore()
+    chunks = [Chunk(text="Password policy: 12 chars.", source="sec.md", index=0)]
+    store.add(chunks, [EmbeddingService.mock_embedding(chunks[0].text)])
+
+    pipeline = _make_streaming_pipeline(store, tokens=["ok"])
+    events = list(pipeline.stream_query("password?"))
+
+    data_line = events[0].split("\n")[1]
+    payload = json.loads(data_line.removeprefix("data:").strip())
+    assert isinstance(payload, list)
+    assert payload[0]["source"] == "sec.md"
+
+
+def test_stream_query_yields_token_events() -> None:
+    store = VectorStore()
+    chunks = [Chunk(text="Leave policy.", source="hr.md", index=0)]
+    store.add(chunks, [EmbeddingService.mock_embedding(chunks[0].text)])
+
+    pipeline = _make_streaming_pipeline(store, tokens=["Hello", " world"])
+    events = list(pipeline.stream_query("leave?"))
+
+    token_events = [e for e in events if e.startswith("event: token\n")]
+    assert len(token_events) == 2
+
+    def _token(event: str) -> str:
+        return str(json.loads(event.split("\n")[1].removeprefix("data:").strip()))
+
+    assert _token(token_events[0]) == "Hello"
+    assert _token(token_events[1]) == " world"
+
+
+def test_stream_query_last_event_is_done() -> None:
+    store = VectorStore()
+    chunks = [Chunk(text="Any content.", source="a.md", index=0)]
+    store.add(chunks, [EmbeddingService.mock_embedding(chunks[0].text)])
+
+    pipeline = _make_streaming_pipeline(store, tokens=["done"])
+    events = list(pipeline.stream_query("question?"))
+
+    assert events[-1] == "event: done\ndata: {}\n\n"
+
+
+def test_stream_query_empty_store_yields_valid_sse() -> None:
+    pipeline = _make_streaming_pipeline(VectorStore(), tokens=["answer"])
+    events = list(pipeline.stream_query("anything?"))
+
+    types = [e.split("\n")[0].removeprefix("event:").strip() for e in events]
+    assert types[0] == "chunks"
+    assert types[-1] == "done"
+    assert all(e.endswith("\n\n") for e in events)
