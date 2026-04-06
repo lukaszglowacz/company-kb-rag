@@ -12,25 +12,66 @@ Users ask questions in natural language; answers are grounded exclusively in com
 | Embeddings | OpenAI text-embedding-3-small |
 | Similarity | NumPy cosine similarity |
 | Frontend | Next.js 14 App Router, TypeScript strict, Tailwind CSS |
-| Auth | NextAuth.js (configured in Step 8) |
 | DevOps | GitHub Actions CI, Docker Compose |
 
-## Setup (placeholder — detailed instructions in feat/etap-7-docker)
+## Architecture
+
+```
+Browser
+  └─► Next.js 14 (port 3000)
+        └─► FastAPI (port 8000)
+              ├─► VectorStore (in-memory NumPy)
+              ├─► OpenAI Embeddings API
+              └─► Anthropic Claude API
+```
+
+On startup, the backend automatically ingests the four markdown documents in `backend/data/`
+into the in-memory vector store (no manual `/ingest` call needed).
+
+## Quick Start — Docker Compose
+
+```bash
+# 1. Clone and enter the repo
+git clone <repo-url> && cd company-kb-rag
+
+# 2. Copy environment template and fill in your API keys
+cp .env.example .env
+
+# 3. Build and start both services
+docker compose up --build
+
+# 4. Open http://localhost:3000
+```
+
+Both services restart automatically (`unless-stopped`).
+The backend is available at http://localhost:8000.
+
+## Quick Start — Local Development
 
 ```bash
 # Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp ../.env.example .env   # fill in API keys
+cp ../.env.example ../.env   # fill in API keys
 uvicorn main:app --reload --port 8000
 
-# Frontend
+# Frontend (separate terminal)
 cd frontend
 npm install
 cp ../.env.example .env.local
-npm run dev   # runs on port 3001
+npm run dev   # http://localhost:3001
 ```
+
+## Environment Variables
+
+Copy `.env.example` to `.env` (Docker) or `.env.local` (frontend dev) and fill in:
+
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | yes | Claude API key — used by the backend |
+| `OPENAI_API_KEY` | yes | OpenAI API key — used for embeddings |
+| `NEXT_PUBLIC_API_URL` | no | Backend URL seen by the browser (default: `http://localhost:8000`) |
 
 ## CI Pipeline
 
@@ -43,25 +84,24 @@ Every pull request to `main` runs six jobs:
 | `backend-test` | pytest + pytest-cov | Unit tests pass, coverage report printed |
 | `frontend-typecheck` | tsc --noEmit | TypeScript strict mode — zero type errors |
 | `frontend-lint` | ESLint | Next.js + TypeScript lint rules, zero warnings |
-| `frontend-build` | next build | Production build succeeds (catches missing env vars, broken imports) |
+| `frontend-build` | next build | Production build succeeds |
 
-## Architecture
+## API Reference
 
-```
-Browser
-  └─► Next.js 14 (port 3000/3001)
-        └─► FastAPI (port 8000)
-              ├─► VectorStore (in-memory NumPy)
-              ├─► OpenAI Embeddings API
-              └─► Anthropic Claude API
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check — returns status and chunk count |
+| `POST` | `/ingest` | Add a document chunk to the vector store |
+| `POST` | `/query` | Single-shot RAG query — returns full answer |
+| `POST` | `/query/stream` | Streaming RAG query — SSE: `chunks`, `token`, `done` |
+| `POST` | `/summarize` | Summarize a question into ≤12 words |
 
 ## Project Status
 
-- [ ] Step 1 — repo structure + CI pipeline
-- [ ] Step 2 — ingestion pipeline (chunker, embeddings, vector store)
-- [ ] Step 3 — query pipeline (RAG + summarization endpoint)
-- [ ] Step 4 — Next.js chat UI
-- [ ] Step 5 — company documents + auto-ingestion
-- [ ] Step 6 — streaming + error handling + loading states
-- [ ] Step 7 — Docker Compose + full documentation
+- [x] Step 1 — repo structure + CI pipeline
+- [x] Step 2 — ingestion pipeline (chunker, embeddings, vector store)
+- [x] Step 3 — query pipeline (RAG + summarization endpoint)
+- [x] Step 4 — Next.js chat UI
+- [x] Step 5 — company documents + auto-ingestion
+- [x] Step 6 — streaming + error handling + loading states
+- [x] Step 7 — Docker Compose + full documentation
