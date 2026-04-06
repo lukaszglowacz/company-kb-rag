@@ -106,7 +106,7 @@ class RAGPipeline:
             ChunkMetadata(
                 source=chunk.source,
                 score=score,
-                preview=chunk.text[:CHUNK_PREVIEW_LENGTH],
+                preview=(chunk.text or "")[:CHUNK_PREVIEW_LENGTH],
             )
             for chunk, score in results
         ]

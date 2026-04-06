@@ -39,7 +39,21 @@ def _make_pipeline_with_bad_response(store: VectorStore) -> RAGPipeline:
     mock_message.content = [MagicMock()]  # plain MagicMock ≠ TextBlock
     mock_client = MagicMock()
     mock_client.messages.create.return_value = mock_message
+    embedding_service = MagicMock(spec=EmbeddingService)
+    embedding_service.get_embedding.side_effect = EmbeddingService.mock_embedding
+    return RAGPipeline(
+        store=store,
+        embedding_service=embedding_service,
+        anthropic_client=mock_client,
+    )
 
+
+def _make_pipeline_with_empty_content(store: VectorStore) -> RAGPipeline:
+    """Pipeline whose LLM returns an empty content list — triggers ValueError."""
+    mock_message = MagicMock()
+    mock_message.content = []
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_message
     embedding_service = MagicMock(spec=EmbeddingService)
     embedding_service.get_embedding.side_effect = EmbeddingService.mock_embedding
     return RAGPipeline(
@@ -147,3 +161,17 @@ def test_query_raises_on_non_text_llm_response() -> None:
     pipeline = _make_pipeline_with_bad_response(VectorStore())
     with pytest.raises(ValueError, match="Unexpected non-text"):
         pipeline.query("What is the policy?")
+
+
+def test_raises_on_empty_llm_content() -> None:
+    """_call_llm raises ValueError when Claude returns empty content list."""
+    pipeline = _make_pipeline_with_empty_content(VectorStore())
+    with pytest.raises(ValueError, match="Empty response"):
+        pipeline.summarize("any text")
+
+
+def test_summarize_with_empty_input_still_calls_llm() -> None:
+    """summarize() forwards even an empty string to the LLM without error."""
+    pipeline = _make_pipeline(VectorStore())
+    result = pipeline.summarize("")
+    assert isinstance(result, str)
