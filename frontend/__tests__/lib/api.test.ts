@@ -116,6 +116,56 @@ describe("queryStream", () => {
     vi.unstubAllGlobals();
   });
 
+  it("silently skips SSE event missing event: line", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream([
+          "data: something\n\n",
+          "event: done\ndata: {}\n\n",
+        ]),
+      }),
+    );
+    const cb = makeCallbacks();
+    await queryStream("test?", cb);
+    expect(cb.errors).toHaveLength(0);
+    expect(cb.doneCount).toBe(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("silently skips SSE event missing data: line", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream([
+          "event: token\n\n",
+          "event: done\ndata: {}\n\n",
+        ]),
+      }),
+    );
+    const cb = makeCallbacks();
+    await queryStream("test?", cb);
+    expect(cb.errors).toHaveLength(0);
+    expect(cb.doneCount).toBe(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("calls onError when SSE data contains malformed JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSSEStream(["event: chunks\ndata: not-valid-json\n\n"]),
+      }),
+    );
+    const cb = makeCallbacks();
+    await queryStream("test?", cb);
+    expect(cb.errors).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
   it("ignores unknown SSE event types", async () => {
     vi.stubGlobal(
       "fetch",

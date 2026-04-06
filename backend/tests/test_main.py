@@ -1,8 +1,10 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from main import app, get_pipeline
+from main import app, get_anthropic_client, get_embedding_service, get_pipeline
 from rag.pipeline import ChunkMetadata, QueryResult, RAGPipeline
 
 
@@ -13,6 +15,24 @@ def _make_client() -> TestClient:
 def _mock_pipeline() -> MagicMock:
     pipeline = MagicMock(spec=RAGPipeline)
     return pipeline
+
+
+# ── missing API keys → HTTPException 500 ─────────────────────────────────────
+
+def test_get_embedding_service_raises_500_when_openai_key_missing() -> None:
+    with patch("main._get_openai_api_key", return_value=None):
+        with pytest.raises(HTTPException) as exc:
+            get_embedding_service()
+    assert exc.value.status_code == 500
+    assert "OPENAI_API_KEY" in exc.value.detail
+
+
+def test_get_anthropic_client_raises_500_when_anthropic_key_missing() -> None:
+    with patch("main._get_anthropic_api_key", return_value=None):
+        with pytest.raises(HTTPException) as exc:
+            get_anthropic_client()
+    assert exc.value.status_code == 500
+    assert "ANTHROPIC_API_KEY" in exc.value.detail
 
 
 # ── /health ───────────────────────────────────────────────────────────────────
