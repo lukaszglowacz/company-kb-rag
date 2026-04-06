@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -53,6 +54,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Company KB RAG API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_embedding_service() -> EmbeddingService:
