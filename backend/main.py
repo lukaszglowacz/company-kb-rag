@@ -1,18 +1,49 @@
+import logging
 import os
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
+from data.documents import load_documents
 from rag.chunker import TextChunker
 from rag.embeddings import EmbeddingService
 from rag.pipeline import RAGPipeline
 from rag.store import VectorStore
 
-app = FastAPI(title="Company KB RAG API")
+logger = logging.getLogger(__name__)
 
 _store = VectorStore()
 _chunker = TextChunker()
+
+
+def _ingest_documents(embedding_service: EmbeddingService) -> None:
+    docs = load_documents()
+    for text, source in docs:
+        chunks = _chunker.chunk(text, source)
+        embeddings = [embedding_service.get_embedding(c.text) for c in chunks]
+        _store.add(chunks, embeddings)
+    logger.info("Auto-ingestion complete: %d chunks indexed", _store.count)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        try:
+            _ingest_documents(EmbeddingService(api_key=api_key))
+        except Exception:
+            logger.exception(
+                "Auto-ingestion failed — continuing without pre-loaded docs"
+            )
+    else:
+        logger.warning("OPENAI_API_KEY not set — skipping auto-ingestion")
+    yield
+
+
+app = FastAPI(title="Company KB RAG API", lifespan=lifespan)
 
 
 def get_embedding_service() -> EmbeddingService:
