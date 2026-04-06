@@ -20,6 +20,7 @@ jobs:
       - uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           direct_prompt: |
             Review this pull request. Focus on:
             1. SOLID violations — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
