@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from data.documents import load_documents
@@ -147,6 +148,18 @@ def query(
             )
             for m in result.retrieved_chunks
         ],
+    )
+
+
+@app.post("/query/stream")
+def query_stream(
+    request: QueryRequest,
+    pipeline: RAGPipeline = Depends(get_pipeline),
+) -> StreamingResponse:
+    return StreamingResponse(
+        pipeline.stream_query(request.question),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

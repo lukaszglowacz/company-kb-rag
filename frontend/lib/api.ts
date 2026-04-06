@@ -1,6 +1,20 @@
-import type { IngestResponse, QueryResponse } from "@/types";
+import type { ChunkMetadata, IngestResponse, QueryResponse, StreamCallbacks } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+function dispatchSSEEvent(
+  type: string,
+  data: string,
+  callbacks: StreamCallbacks,
+): void {
+  if (type === "chunks") {
+    callbacks.onChunks(JSON.parse(data) as ChunkMetadata[]);
+  } else if (type === "token") {
+    callbacks.onToken(JSON.parse(data) as string);
+  } else if (type === "done") {
+    callbacks.onDone();
+  }
+}
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -18,6 +32,56 @@ export function query(question: string): Promise<QueryResponse> {
     method: "POST",
     body: JSON.stringify({ question }),
   });
+}
+
+export async function queryStream(
+  question: string,
+  callbacks: StreamCallbacks,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/query/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+  } catch (err) {
+    console.error(err);
+    callbacks.onError(err instanceof Error ? err.message : "Network error — could not reach the server.");
+    return;
+  }
+
+  if (!res.ok || !res.body) {
+    callbacks.onError(`API error ${res.status}`);
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+
+      for (const event of events) {
+        const typeLine = event.split("\n").find((l) => l.startsWith("event:"));
+        const dataLine = event.split("\n").find((l) => l.startsWith("data:"));
+        if (!typeLine || !dataLine) continue;
+        const type = typeLine.slice("event:".length).trim();
+        const data = dataLine.slice("data:".length).trim();
+        dispatchSSEEvent(type, data, callbacks);
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    callbacks.onError(err instanceof Error ? err.message : "Stream interrupted unexpectedly.");
+  }
 }
 
 export function ingest(text: string, source: string): Promise<IngestResponse> {

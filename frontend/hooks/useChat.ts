@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { query as defaultQuery } from "@/lib/api";
-import type { Message, QueryResponse } from "@/types";
+import { queryStream as defaultQueryStream } from "@/lib/api";
+import type { ChunkMetadata, Message, StreamCallbacks } from "@/types";
 
-type QueryFn = (text: string) => Promise<QueryResponse>;
+type QueryStreamFn = (
+  question: string,
+  callbacks: StreamCallbacks,
+) => Promise<void>;
 
 interface UseChatReturn {
   messages: Message[];
@@ -13,7 +16,9 @@ interface UseChatReturn {
   sendMessage: (text: string) => Promise<void>;
 }
 
-export function useChat(queryFn: QueryFn = defaultQuery): UseChatReturn {
+export function useChat(
+  queryStreamFn: QueryStreamFn = defaultQueryStream,
+): UseChatReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,26 +31,51 @@ export function useChat(queryFn: QueryFn = defaultQuery): UseChatReturn {
         content: text,
       };
 
-      setMessages((prev: Message[]) => [...prev, userMessage]);
+      const assistantId = crypto.randomUUID();
+      const assistantMessage: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+      };
+
+      setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsLoading(true);
       setError(null);
 
-      try {
-        const response = await queryFn(text);
-        const assistantMessage: Message = {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: response.answer,
-          chunks: response.retrieved_chunks,
-        };
-        setMessages((prev: Message[]) => [...prev, assistantMessage]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setIsLoading(false);
-      }
+      await queryStreamFn(text, {
+        onChunks: (chunks: ChunkMetadata[]) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, chunks } : m,
+            ),
+          );
+        },
+        onToken: (token: string) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: m.content + token }
+                : m,
+            ),
+          );
+        },
+        onDone: () => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, isStreaming: false } : m,
+            ),
+          );
+          setIsLoading(false);
+        },
+        onError: (message: string) => {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+          setError(message);
+          setIsLoading(false);
+        },
+      });
     },
-    [queryFn],
+    [queryStreamFn],
   );
 
   return { messages, isLoading, error, sendMessage };

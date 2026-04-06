@@ -1,3 +1,5 @@
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import anthropic
@@ -74,19 +76,14 @@ class RAGPipeline:
         max_tokens: int,
         system: str | None = None,
     ) -> str:
+        kwargs: dict[str, object] = {
+            "model": CLAUDE_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
         if system is not None:
-            message = self._client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-            )
-        else:
-            message = self._client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            kwargs["system"] = system
+        message = self._client.messages.create(**kwargs)  # type: ignore[call-overload]
         if not message.content:
             raise ValueError("Empty response from Claude API")
         block = message.content[0]
@@ -94,14 +91,11 @@ class RAGPipeline:
             raise ValueError("Unexpected non-text response from Claude API")
         return block.text
 
-    def query(self, question: str) -> QueryResult:
+    def _retrieve(self, question: str) -> tuple[list[ChunkMetadata], str]:
+        """Embed question, search store, build metadata and prompt."""
         query_embedding = self._embedding_service.get_embedding(question)
         results = self._store.search(query_embedding, top_k=TOP_K_CHUNKS)
-
         chunks = [chunk for chunk, _ in results]
-        prompt = self.build_prompt(question, chunks)
-        answer = self._call_llm(prompt, MAX_TOKENS_ANSWER, system=SYSTEM_PROMPT)
-
         metadata = [
             ChunkMetadata(
                 source=chunk.source,
@@ -110,7 +104,31 @@ class RAGPipeline:
             )
             for chunk, score in results
         ]
+        prompt = self.build_prompt(question, chunks)
+        return metadata, prompt
+
+    def query(self, question: str) -> QueryResult:
+        metadata, prompt = self._retrieve(question)
+        answer = self._call_llm(prompt, MAX_TOKENS_ANSWER, system=SYSTEM_PROMPT)
         return QueryResult(answer=answer, retrieved_chunks=metadata)
+
+    def stream_query(self, question: str) -> Iterator[str]:
+        """Yield SSE-formatted lines: chunks event, token events, done event."""
+        metadata, prompt = self._retrieve(question)
+        chunks_payload = json.dumps(
+            [{"source": m.source, "score": m.score, "preview": m.preview}
+             for m in metadata]
+        )
+        yield f"event: chunks\ndata: {chunks_payload}\n\n"
+        with self._client.messages.stream(
+            model=CLAUDE_MODEL,
+            max_tokens=MAX_TOKENS_ANSWER,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield f"event: token\ndata: {json.dumps(text)}\n\n"
+        yield "event: done\ndata: {}\n\n"
 
     def summarize(self, text: str) -> str:
         return self._call_llm(

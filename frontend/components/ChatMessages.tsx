@@ -25,10 +25,10 @@ export function ChatMessages({ messages, isLoading, error }: Props) {
       {messages.map((m) => (
         <MessageBubble key={m.id} message={m} />
       ))}
-      {isLoading && (
+      {isLoading && !messages.at(-1)?.isStreaming && (
         <div className="flex justify-start">
           <div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-gray-400">
-            Thinking…
+            Searching knowledge base…
           </div>
         </div>
       )}

@@ -17,6 +17,9 @@ export function MessageBubble({ message }: Props) {
         }`}
       >
         {message.content}
+        {message.isStreaming && (
+          <span className="inline-block w-1.5 h-4 ml-0.5 bg-current opacity-70 animate-pulse align-middle" />
+        )}
       </div>
     </div>
   );

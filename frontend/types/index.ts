@@ -14,9 +14,17 @@ export interface IngestResponse {
   total_chunks: number;
 }
 
+export interface StreamCallbacks {
+  onChunks: (chunks: ChunkMetadata[]) => void;
+  onToken: (token: string) => void;
+  onDone: () => void;
+  onError: (message: string) => void;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   chunks?: ChunkMetadata[];
+  isStreaming?: boolean;
 }
