@@ -99,7 +99,7 @@ def query(
     request: QueryRequest,
     pipeline: RAGPipeline = Depends(get_pipeline),
 ) -> QueryResponse:
-    result: QueryResult = pipeline.query(request.question)
+    result = pipeline.query(request.question)
     return QueryResponse(
         answer=result.answer,
         retrieved_chunks=[

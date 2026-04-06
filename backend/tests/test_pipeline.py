@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock
 
 import anthropic
@@ -112,3 +113,27 @@ def test_summarize_calls_llm_and_returns_string() -> None:
     summary = pipeline.summarize("How many vacation days do I get per year?")
     assert isinstance(summary, str)
     assert len(summary) > 0
+
+
+# ── error handling ─────────────────────────────────────────────────────────────
+
+def test_query_raises_on_non_text_llm_response() -> None:
+    """_call_llm raises ValueError when Claude returns a non-TextBlock."""
+    pipeline = _make_pipeline(VectorStore())
+    mock_bad_response = MagicMock()
+    mock_bad_response.content = [MagicMock()]  # plain MagicMock ≠ TextBlock
+    pipeline._client.messages.create.return_value = mock_bad_response  # type: ignore[union-attr]
+
+    with pytest.raises(ValueError, match="Unexpected non-text"):
+        pipeline.summarize("any text")
+
+
+def test_summarize_raises_on_non_text_llm_response() -> None:
+    """Ensures the same guard works in the summarize path."""
+    pipeline = _make_pipeline(VectorStore())
+    mock_bad_response = MagicMock()
+    mock_bad_response.content = [MagicMock()]
+    pipeline._client.messages.create.return_value = mock_bad_response  # type: ignore[union-attr]
+
+    with pytest.raises(ValueError, match="Unexpected non-text"):
+        pipeline.query("What is the policy?")

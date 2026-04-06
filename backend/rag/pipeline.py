@@ -9,6 +9,7 @@ from rag.store import VectorStore
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 TOP_K_CHUNKS = 5
 CHUNK_PREVIEW_LENGTH = 100
+CHUNK_NUMBERING_OFFSET = 1  # convert 0-based index to 1-based display
 MAX_TOKENS_ANSWER = 1024
 MAX_TOKENS_SUMMARY = 64
 
@@ -62,10 +63,34 @@ class RAGPipeline:
                 f"No relevant documents found.\n\nQuestion: {question}"
             )
         excerpts = "\n\n".join(
-            f"[{i + 1}] (source: {c.source})\n{c.text}"
+            f"[{i + CHUNK_NUMBERING_OFFSET}] (source: {c.source})\n{c.text}"
             for i, c in enumerate(chunks)
         )
         return f"Document excerpts:\n\n{excerpts}\n\nQuestion: {question}"
+
+    def _call_llm(
+        self,
+        prompt: str,
+        max_tokens: int,
+        system: str | None = None,
+    ) -> str:
+        if system is not None:
+            message = self._client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        else:
+            message = self._client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        block = message.content[0]
+        if not isinstance(block, anthropic.types.TextBlock):
+            raise ValueError("Unexpected non-text response from Claude API")
+        return block.text
 
     def query(self, question: str) -> QueryResult:
         query_embedding = self._embedding_service.get_embedding(question)
@@ -73,17 +98,7 @@ class RAGPipeline:
 
         chunks = [chunk for chunk, _ in results]
         prompt = self.build_prompt(question, chunks)
-
-        message = self._client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=MAX_TOKENS_ANSWER,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        block = message.content[0]
-        if not isinstance(block, anthropic.types.TextBlock):
-            raise ValueError("Unexpected non-text response from Claude API")
-        answer = block.text
+        answer = self._call_llm(prompt, MAX_TOKENS_ANSWER, system=SYSTEM_PROMPT)
 
         metadata = [
             ChunkMetadata(
@@ -96,12 +111,7 @@ class RAGPipeline:
         return QueryResult(answer=answer, retrieved_chunks=metadata)
 
     def summarize(self, text: str) -> str:
-        message = self._client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=MAX_TOKENS_SUMMARY,
-            messages=[{"role": "user", "content": f"{SUMMARIZE_PROMPT}\n\n{text}"}],
+        return self._call_llm(
+            f"{SUMMARIZE_PROMPT}\n\n{text}",
+            MAX_TOKENS_SUMMARY,
         )
-        block = message.content[0]
-        if not isinstance(block, anthropic.types.TextBlock):
-            raise ValueError("Unexpected non-text response from Claude API")
-        return block.text
