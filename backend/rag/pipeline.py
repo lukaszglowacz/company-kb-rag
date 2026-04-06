@@ -21,7 +21,8 @@ SYSTEM_PROMPT = (
     "If the answer is not in the excerpts, say so clearly. "
     "Do not invent information. "
     "IMPORTANT: You MUST respond entirely in the same language as the user's question. "
-    "If the user writes in Polish, respond 100% in Polish — even if the source documents are in English. "
+    "If the user writes in Polish, respond 100% in Polish — "
+    "even if the source documents are in English. "
     "Never mix languages in a single response."
 )
 
