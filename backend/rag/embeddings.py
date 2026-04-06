@@ -4,7 +4,10 @@ from openai import OpenAI
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
-MOCK_SEED = 0xDEAD
+MOCK_SEED = 0xDEAD       # Arbitrary seed for deterministic test embeddings
+LCG_MULTIPLIER = 1664525      # Linear Congruential Generator multiplier (Knuth)
+LCG_INCREMENT = 1013904223    # Linear Congruential Generator increment
+UINT32_MASK = 0xFFFFFFFF      # 32-bit unsigned integer mask
 
 
 class EmbeddingService:
@@ -28,10 +31,10 @@ class EmbeddingService:
     def mock_embedding(text: str) -> list[float]:
         """Deterministic fake embedding — no API call, safe for tests."""
         digest = int(hashlib.sha256(text.encode()).hexdigest(), 16)
-        seed = (digest ^ MOCK_SEED) & 0xFFFFFFFF
+        seed = (digest ^ MOCK_SEED) & UINT32_MASK
         values: list[float] = []
-        for i in range(EMBEDDING_DIM):
-            seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF
-            values.append((seed / 0xFFFFFFFF) * 2.0 - 1.0)
+        for _ in range(EMBEDDING_DIM):
+            seed = (seed * LCG_MULTIPLIER + LCG_INCREMENT) & UINT32_MASK
+            values.append((seed / UINT32_MASK) * 2.0 - 1.0)
         magnitude = sum(v * v for v in values) ** 0.5
         return [v / magnitude for v in values]

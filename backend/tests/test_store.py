@@ -1,3 +1,5 @@
+import pytest
+
 from rag.chunker import Chunk
 from rag.embeddings import EmbeddingService
 from rag.store import VectorStore
@@ -77,3 +79,11 @@ def test_scores_are_floats() -> None:
 
     results = store.search(EmbeddingService.mock_embedding("hello"), top_k=1)
     assert isinstance(results[0][1], float)
+
+
+def test_add_mismatched_lengths_raises() -> None:
+    store = VectorStore()
+    chunks = [_make_chunk("a"), _make_chunk("b")]
+    embeddings = [EmbeddingService.mock_embedding("a")]
+    with pytest.raises(ValueError, match="Chunks count"):
+        store.add(chunks, embeddings)

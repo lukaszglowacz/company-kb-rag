@@ -38,7 +38,7 @@ class TextChunker:
         index = 0
 
         for start in range(0, len(words), step):
-            window = words[start : start + self._chunk_size]
+            window = words[start:start + self._chunk_size]
             chunks.append(Chunk(text=" ".join(window), source=source, index=index))
             index += 1
             if start + self._chunk_size >= len(words):

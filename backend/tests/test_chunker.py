@@ -1,6 +1,6 @@
 import pytest
 
-from rag.chunker import Chunk, TextChunker
+from rag.chunker import TextChunker
 
 
 def test_empty_text_returns_no_chunks() -> None:
@@ -58,7 +58,7 @@ def test_chunk_indices_sequential() -> None:
 
 
 def test_invalid_overlap_raises() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="overlap must be smaller than chunk_size"):
         TextChunker(chunk_size=5, overlap=5)
 
 

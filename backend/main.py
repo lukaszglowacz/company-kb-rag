@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from rag.chunker import TextChunker
@@ -14,7 +14,13 @@ _chunker = TextChunker()
 
 
 def get_embedding_service() -> EmbeddingService:
-    return EmbeddingService(api_key=os.environ["OPENAI_API_KEY"])
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY environment variable not configured",
+        )
+    return EmbeddingService(api_key=api_key)
 
 
 class IngestRequest(BaseModel):

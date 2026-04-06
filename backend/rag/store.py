@@ -5,6 +5,8 @@ import numpy.typing as npt
 
 from rag.chunker import Chunk
 
+NORMALIZATION_EPSILON = 1e-8  # Suited for float32 precision
+
 
 @dataclass(frozen=True)
 class StoredChunk:
@@ -23,6 +25,11 @@ class VectorStore:
         self._items: list[StoredChunk] = []
 
     def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        if len(chunks) != len(embeddings):
+            raise ValueError(
+                f"Chunks count ({len(chunks)}) must match embeddings count "
+                f"({len(embeddings)})"
+            )
         for chunk, embedding in zip(chunks, embeddings):
             vector = np.array(embedding, dtype=np.float32)
             self._items.append(StoredChunk(chunk=chunk, embedding=vector))
@@ -34,10 +41,10 @@ class VectorStore:
             return []
 
         query = np.array(query_embedding, dtype=np.float32)
-        query = query / (np.linalg.norm(query) + 1e-10)
+        query = query / (np.linalg.norm(query) + NORMALIZATION_EPSILON)
 
         matrix = np.stack([item.embedding for item in self._items])
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-10
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + NORMALIZATION_EPSILON
         matrix = matrix / norms
 
         scores: npt.NDArray[np.float32] = matrix @ query
