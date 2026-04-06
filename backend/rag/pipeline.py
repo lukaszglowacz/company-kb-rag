@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import anthropic
@@ -111,6 +112,41 @@ class RAGPipeline:
             for chunk, score in results
         ]
         return QueryResult(answer=answer, retrieved_chunks=metadata)
+
+    def stream_query(self, question: str) -> Iterator[str]:
+        """Yield SSE-formatted lines: chunks event, token events, done event."""
+        query_embedding = self._embedding_service.get_embedding(question)
+        results = self._store.search(query_embedding, top_k=TOP_K_CHUNKS)
+
+        chunks = [chunk for chunk, _ in results]
+        metadata = [
+            ChunkMetadata(
+                source=chunk.source,
+                score=score,
+                preview=(chunk.text or "")[:CHUNK_PREVIEW_LENGTH],
+            )
+            for chunk, score in results
+        ]
+
+        import json
+
+        chunks_payload = json.dumps(
+            [{"source": m.source, "score": m.score, "preview": m.preview}
+             for m in metadata]
+        )
+        yield f"event: chunks\ndata: {chunks_payload}\n\n"
+
+        prompt = self.build_prompt(question, chunks)
+        with self._client.messages.stream(
+            model=CLAUDE_MODEL,
+            max_tokens=MAX_TOKENS_ANSWER,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield f"event: token\ndata: {json.dumps(text)}\n\n"
+
+        yield "event: done\ndata: {}\n\n"
 
     def summarize(self, text: str) -> str:
         return self._call_llm(

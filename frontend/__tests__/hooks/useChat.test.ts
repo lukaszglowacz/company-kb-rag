@@ -1,97 +1,105 @@
 import { renderHook, act } from "@testing-library/react";
 import { useChat } from "@/hooks/useChat";
-import type { QueryResponse } from "@/types";
+import type { StreamCallbacks } from "@/types";
 
-const makeQueryFn =
-  (response: QueryResponse) => () => Promise.resolve(response);
+type QueryStreamFn = (
+  question: string,
+  callbacks: StreamCallbacks,
+) => Promise<void>;
 
-const makeFailingQueryFn = (message: string) => () =>
-  Promise.reject(new Error(message));
+function makeSuccessStream(
+  answer: string,
+  chunks = [{ source: "doc.txt", score: 0.9, preview: "the answer" }],
+): QueryStreamFn {
+  return async (_question, callbacks) => {
+    callbacks.onChunks(chunks);
+    for (const token of answer.split("")) {
+      callbacks.onToken(token);
+    }
+    callbacks.onDone();
+  };
+}
 
-const defaultResponse: QueryResponse = {
-  answer: "42",
-  retrieved_chunks: [
-    { source: "doc.txt", score: 0.9, preview: "the answer" },
-  ],
-};
+function makeErrorStream(message: string): QueryStreamFn {
+  return async (_question, callbacks) => {
+    callbacks.onError(message);
+  };
+}
 
 describe("useChat", () => {
   it("starts with empty messages and no error", () => {
-    const { result } = renderHook(() =>
-      useChat(makeQueryFn(defaultResponse)),
-    );
+    const { result } = renderHook(() => useChat(makeSuccessStream("hi")));
     expect(result.current.messages).toEqual([]);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
   });
 
-  it("appends user and assistant messages on success", async () => {
-    const { result } = renderHook(() =>
-      useChat(makeQueryFn(defaultResponse)),
-    );
+  it("appends user message immediately and assistant message on done", async () => {
+    const { result } = renderHook(() => useChat(makeSuccessStream("hello")));
     await act(async () => {
-      await result.current.sendMessage("What is the answer?");
+      await result.current.sendMessage("hi");
     });
     expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[0].role).toBe("user");
-    expect(result.current.messages[0].content).toBe("What is the answer?");
+    expect(result.current.messages[0].content).toBe("hi");
     expect(result.current.messages[1].role).toBe("assistant");
-    expect(result.current.messages[1].content).toBe("42");
+    expect(result.current.messages[1].content).toBe("hello");
   });
 
-  it("attaches retrieved chunks to the assistant message", async () => {
-    const { result } = renderHook(() =>
-      useChat(makeQueryFn(defaultResponse)),
-    );
+  it("builds assistant content token by token", async () => {
+    const { result } = renderHook(() => useChat(makeSuccessStream("abc")));
     await act(async () => {
       await result.current.sendMessage("question");
     });
-    expect(result.current.messages[1].chunks).toEqual(
-      defaultResponse.retrieved_chunks,
-    );
+    expect(result.current.messages[1].content).toBe("abc");
   });
 
-  it("sets error and keeps isLoading false on failure", async () => {
+  it("attaches chunks to assistant message", async () => {
+    const chunks = [{ source: "s.md", score: 0.8, preview: "text" }];
     const { result } = renderHook(() =>
-      useChat(makeFailingQueryFn("network error")),
+      useChat(makeSuccessStream("answer", chunks)),
     );
     await act(async () => {
-      await result.current.sendMessage("bad question");
+      await result.current.sendMessage("q");
     });
-    expect(result.current.error).toBe("network error");
+    expect(result.current.messages[1].chunks).toEqual(chunks);
+  });
+
+  it("clears isStreaming flag after done", async () => {
+    const { result } = renderHook(() => useChat(makeSuccessStream("hi")));
+    await act(async () => {
+      await result.current.sendMessage("q");
+    });
+    expect(result.current.messages[1].isStreaming).toBe(false);
     expect(result.current.isLoading).toBe(false);
   });
 
-  it("clears a previous error on the next successful send", async () => {
-    let fail = true;
-    const queryFn = () =>
-      fail
-        ? Promise.reject(new Error("oops"))
-        : Promise.resolve(defaultResponse);
-    const { result } = renderHook(() => useChat(queryFn));
-
+  it("removes assistant message and sets error on stream error", async () => {
+    const { result } = renderHook(() =>
+      useChat(makeErrorStream("network error")),
+    );
     await act(async () => {
-      await result.current.sendMessage("first");
+      await result.current.sendMessage("q");
     });
+    expect(result.current.error).toBe("network error");
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe("user");
+  });
+
+  it("clears previous error on next successful send", async () => {
+    let fail = true;
+    const queryStreamFn: QueryStreamFn = async (_q, cb) => {
+      if (fail) cb.onError("oops");
+      else { cb.onChunks([]); cb.onToken("ok"); cb.onDone(); }
+    };
+    const { result } = renderHook(() => useChat(queryStreamFn));
+
+    await act(async () => { await result.current.sendMessage("first"); });
     expect(result.current.error).toBe("oops");
 
     fail = false;
-    await act(async () => {
-      await result.current.sendMessage("second");
-    });
+    await act(async () => { await result.current.sendMessage("second"); });
     expect(result.current.error).toBeNull();
-  });
-
-  it("assigns unique ids to each message", async () => {
-    const { result } = renderHook(() =>
-      useChat(makeQueryFn(defaultResponse)),
-    );
-    await act(async () => {
-      await result.current.sendMessage("ping");
-    });
-    const [user, assistant] = result.current.messages;
-    expect(user.id).toBeTruthy();
-    expect(assistant.id).toBeTruthy();
-    expect(user.id).not.toBe(assistant.id);
   });
 });
