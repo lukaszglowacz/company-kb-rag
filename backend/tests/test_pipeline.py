@@ -13,17 +13,35 @@ from rag.pipeline import (
 from rag.store import VectorStore
 
 
-def _make_pipeline(store: VectorStore) -> RAGPipeline:
-    mock_client = MagicMock()
-    mock_message = MagicMock()
+def _make_client_mock(text: str = "Mocked answer") -> MagicMock:
     mock_text_block = MagicMock(spec=anthropic.types.TextBlock)
-    mock_text_block.text = "Mocked answer"
+    mock_text_block.text = text
+    mock_message = MagicMock()
     mock_message.content = [mock_text_block]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_message
+    return mock_client
+
+
+def _make_pipeline(store: VectorStore) -> RAGPipeline:
+    embedding_service = MagicMock(spec=EmbeddingService)
+    embedding_service.get_embedding.side_effect = EmbeddingService.mock_embedding
+    return RAGPipeline(
+        store=store,
+        embedding_service=embedding_service,
+        anthropic_client=_make_client_mock(),
+    )
+
+
+def _make_pipeline_with_bad_response(store: VectorStore) -> RAGPipeline:
+    """Pipeline whose LLM returns a non-TextBlock — triggers ValueError."""
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock()]  # plain MagicMock ≠ TextBlock
+    mock_client = MagicMock()
     mock_client.messages.create.return_value = mock_message
 
     embedding_service = MagicMock(spec=EmbeddingService)
     embedding_service.get_embedding.side_effect = EmbeddingService.mock_embedding
-
     return RAGPipeline(
         store=store,
         embedding_service=embedding_service,
@@ -117,23 +135,15 @@ def test_summarize_calls_llm_and_returns_string() -> None:
 
 # ── error handling ─────────────────────────────────────────────────────────────
 
-def test_query_raises_on_non_text_llm_response() -> None:
+def test_summarize_raises_on_non_text_llm_response() -> None:
     """_call_llm raises ValueError when Claude returns a non-TextBlock."""
-    pipeline = _make_pipeline(VectorStore())
-    mock_bad_response = MagicMock()
-    mock_bad_response.content = [MagicMock()]  # plain MagicMock ≠ TextBlock
-    pipeline._client.messages.create.return_value = mock_bad_response  # type: ignore[union-attr]
-
+    pipeline = _make_pipeline_with_bad_response(VectorStore())
     with pytest.raises(ValueError, match="Unexpected non-text"):
         pipeline.summarize("any text")
 
 
-def test_summarize_raises_on_non_text_llm_response() -> None:
-    """Ensures the same guard works in the summarize path."""
-    pipeline = _make_pipeline(VectorStore())
-    mock_bad_response = MagicMock()
-    mock_bad_response.content = [MagicMock()]
-    pipeline._client.messages.create.return_value = mock_bad_response  # type: ignore[union-attr]
-
+def test_query_raises_on_non_text_llm_response() -> None:
+    """Ensures the same guard applies in the query path."""
+    pipeline = _make_pipeline_with_bad_response(VectorStore())
     with pytest.raises(ValueError, match="Unexpected non-text"):
         pipeline.query("What is the policy?")

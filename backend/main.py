@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from rag.chunker import TextChunker
 from rag.embeddings import EmbeddingService
-from rag.pipeline import QueryResult, RAGPipeline
+from rag.pipeline import RAGPipeline
 from rag.store import VectorStore
 
 app = FastAPI(title="Company KB RAG API")

@@ -87,6 +87,8 @@ class RAGPipeline:
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
+        if not message.content:
+            raise ValueError("Empty response from Claude API")
         block = message.content[0]
         if not isinstance(block, anthropic.types.TextBlock):
             raise ValueError("Unexpected non-text response from Claude API")
