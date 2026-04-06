@@ -9,7 +9,7 @@ from rag.embeddings import EmbeddingService
 from rag.store import VectorStore
 
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
-TOP_K_CHUNKS = 5
+TOP_K_CHUNKS = 10
 CHUNK_PREVIEW_LENGTH = 100
 CHUNK_NUMBERING_OFFSET = 1  # convert 0-based index to 1-based display
 MAX_TOKENS_ANSWER = 1024
@@ -19,7 +19,11 @@ SYSTEM_PROMPT = (
     "You are a company knowledge base assistant. "
     "Answer questions using ONLY the provided document excerpts. "
     "If the answer is not in the excerpts, say so clearly. "
-    "Do not invent information."
+    "Do not invent information. "
+    "IMPORTANT: You MUST respond entirely in the same language as the user's question. "
+    "If the user writes in Polish, respond 100% in Polish — "
+    "even if the source documents are in English. "
+    "Never mix languages in a single response."
 )
 
 SUMMARIZE_PROMPT = (
