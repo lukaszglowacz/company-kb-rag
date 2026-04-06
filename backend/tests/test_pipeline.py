@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import anthropic
 
@@ -15,7 +15,9 @@ from rag.store import VectorStore
 def _make_pipeline(store: VectorStore) -> RAGPipeline:
     mock_client = MagicMock(spec=anthropic.Anthropic)
     mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Mocked answer")]
+    mock_text_block = MagicMock(spec=anthropic.types.TextBlock)
+    mock_text_block.text = "Mocked answer"
+    mock_message.content = [mock_text_block]
     mock_client.messages.create.return_value = mock_message
 
     embedding_service = MagicMock(spec=EmbeddingService)

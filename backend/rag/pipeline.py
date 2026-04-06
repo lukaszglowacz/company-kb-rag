@@ -80,7 +80,10 @@ class RAGPipeline:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        answer = message.content[0].text
+        block = message.content[0]
+        if not isinstance(block, anthropic.types.TextBlock):
+            raise ValueError("Unexpected non-text response from Claude API")
+        answer = block.text
 
         metadata = [
             ChunkMetadata(
@@ -98,4 +101,7 @@ class RAGPipeline:
             max_tokens=MAX_TOKENS_SUMMARY,
             messages=[{"role": "user", "content": f"{SUMMARIZE_PROMPT}\n\n{text}"}],
         )
-        return message.content[0].text
+        block = message.content[0]
+        if not isinstance(block, anthropic.types.TextBlock):
+            raise ValueError("Unexpected non-text response from Claude API")
+        return block.text
