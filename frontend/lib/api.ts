@@ -2,6 +2,20 @@ import type { ChunkMetadata, IngestResponse, QueryResponse, StreamCallbacks } fr
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function dispatchSSEEvent(
+  type: string,
+  data: string,
+  callbacks: StreamCallbacks,
+): void {
+  if (type === "chunks") {
+    callbacks.onChunks(JSON.parse(data) as ChunkMetadata[]);
+  } else if (type === "token") {
+    callbacks.onToken(JSON.parse(data) as string);
+  } else if (type === "done") {
+    callbacks.onDone();
+  }
+}
+
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -33,7 +47,7 @@ export async function queryStream(
     });
   } catch (err) {
     console.error(err);
-    callbacks.onError("Network error — could not reach the server.");
+    callbacks.onError(err instanceof Error ? err.message : "Network error — could not reach the server.");
     return;
   }
 
@@ -59,22 +73,14 @@ export async function queryStream(
         const typeLine = event.split("\n").find((l) => l.startsWith("event:"));
         const dataLine = event.split("\n").find((l) => l.startsWith("data:"));
         if (!typeLine || !dataLine) continue;
-
         const type = typeLine.slice("event:".length).trim();
         const data = dataLine.slice("data:".length).trim();
-
-        if (type === "chunks") {
-          callbacks.onChunks(JSON.parse(data) as ChunkMetadata[]);
-        } else if (type === "token") {
-          callbacks.onToken(JSON.parse(data) as string);
-        } else if (type === "done") {
-          callbacks.onDone();
-        }
+        dispatchSSEEvent(type, data, callbacks);
       }
     }
   } catch (err) {
     console.error(err);
-    callbacks.onError("Stream interrupted unexpectedly.");
+    callbacks.onError(err instanceof Error ? err.message : "Stream interrupted unexpectedly.");
   }
 }
 
