@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 import anthropic
-from anthropic import omit as OMIT
 
 from rag.chunker import Chunk
 from rag.embeddings import EmbeddingService
@@ -77,12 +76,14 @@ class RAGPipeline:
         max_tokens: int,
         system: str | None = None,
     ) -> str:
-        message = self._client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=max_tokens,
-            system=system if system is not None else OMIT,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        kwargs: dict[str, object] = {
+            "model": CLAUDE_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system is not None:
+            kwargs["system"] = system
+        message = self._client.messages.create(**kwargs)  # type: ignore[call-overload]
         if not message.content:
             raise ValueError("Empty response from Claude API")
         block = message.content[0]
