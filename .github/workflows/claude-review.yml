@@ -1,0 +1,30 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  claude-review:
+    name: Claude — code review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            Review this pull request. Focus on:
+            1. SOLID violations — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
+            2. DRY violations — duplicated logic that should be extracted
+            3. Type safety — missing type hints (Python), missing TypeScript strict types, use of `any`
+            4. Test coverage gaps — untested logic, missing edge cases
+            5. Clean Code — functions over 20 lines, magic numbers, misleading names
+            6. Security — hardcoded secrets, SQL injection, command injection
+            Post your findings as inline comments on the relevant lines. End with a short summary: what was done well and what must be fixed before merge.
