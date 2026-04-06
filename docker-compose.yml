@@ -1,0 +1,23 @@
+# Placeholder — implemented in feat/etap-7-docker
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    networks:
+      - kb-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - kb-network
+
+networks:
+  kb-network:
+    driver: bridge
