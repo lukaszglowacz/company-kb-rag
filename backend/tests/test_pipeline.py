@@ -13,7 +13,7 @@ from rag.store import VectorStore
 
 
 def _make_pipeline(store: VectorStore) -> RAGPipeline:
-    mock_client = MagicMock(spec=anthropic.Anthropic)
+    mock_client = MagicMock()
     mock_message = MagicMock()
     mock_text_block = MagicMock(spec=anthropic.types.TextBlock)
     mock_text_block.text = "Mocked answer"
