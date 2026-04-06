@@ -28,9 +28,13 @@ def _ingest_documents(embedding_service: EmbeddingService) -> None:
     logger.info("Auto-ingestion complete: %d chunks indexed", _store.count)
 
 
+def _get_openai_api_key() -> str | None:
+    return os.environ.get("OPENAI_API_KEY")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = _get_openai_api_key()
     if api_key:
         try:
             _ingest_documents(EmbeddingService(api_key=api_key))
@@ -47,7 +51,7 @@ app = FastAPI(title="Company KB RAG API", lifespan=lifespan)
 
 
 def get_embedding_service() -> EmbeddingService:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = _get_openai_api_key()
     if not api_key:
         raise HTTPException(
             status_code=500,
