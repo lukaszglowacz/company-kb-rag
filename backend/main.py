@@ -32,6 +32,10 @@ def _get_openai_api_key() -> str | None:
     return os.environ.get("OPENAI_API_KEY")
 
 
+def _get_anthropic_api_key() -> str | None:
+    return os.environ.get("ANTHROPIC_API_KEY")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     api_key = _get_openai_api_key()
@@ -61,7 +65,7 @@ def get_embedding_service() -> EmbeddingService:
 
 
 def get_anthropic_client() -> anthropic.Anthropic:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = _get_anthropic_api_key()
     if not api_key:
         raise HTTPException(
             status_code=500,

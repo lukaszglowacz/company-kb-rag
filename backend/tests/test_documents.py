@@ -5,6 +5,9 @@ import pytest
 
 from data.documents import load_documents
 
+_CHUNK_WORD_REPEAT = 50   # enough words to produce at least one chunk
+_EMBEDDING_DIM = 128      # dummy embedding dimension for mocks
+
 
 # ── load_documents ────────────────────────────────────────────────────────────
 
@@ -48,10 +51,10 @@ def test_load_documents_returns_sorted_by_filename(tmp_path: Path) -> None:
 def test_ingest_documents_calls_embedding_service_for_each_chunk(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "doc.md").write_text("A " * 50, encoding="utf-8")
+    (tmp_path / "doc.md").write_text("A " * _CHUNK_WORD_REPEAT, encoding="utf-8")
 
     mock_embedding = MagicMock()
-    mock_embedding.get_embedding.return_value = [0.1] * 128
+    mock_embedding.get_embedding.return_value = [0.1] * _EMBEDDING_DIM
 
     with (
         patch("data.documents.DATA_DIR", tmp_path),
