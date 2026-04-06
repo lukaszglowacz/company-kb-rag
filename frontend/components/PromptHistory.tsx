@@ -1,3 +1,5 @@
+const PROMPT_PREVIEW_LENGTH = 40;
+
 interface Props {
   history: string[];
   onSelect: (prompt: string) => void;
@@ -16,7 +18,9 @@ export function PromptHistory({ history, onSelect }: Props) {
             onClick={() => onSelect(prompt)}
             className="shrink-0 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            {prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt}
+            {prompt.length > PROMPT_PREVIEW_LENGTH
+              ? `${prompt.slice(0, PROMPT_PREVIEW_LENGTH)}…`
+              : prompt}
           </button>
         ))}
       </div>
