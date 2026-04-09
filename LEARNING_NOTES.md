@@ -1,26 +1,19 @@
-# NOTATKI Z NAUKI — Company KB RAG
+## 1. Project Overview
 
-Dokument przygotowany do rozmowy kwalifikacyjnej. Opisuje cały proces budowy projektu
-krok po kroku — od pierwszego commita do wdrożenia w Dockerze.
+### What was built
 
----
+**Company KB RAG** is a company knowledge base chatbot based on the
+Retrieval-Augmented Generation (RAG) architecture. The user asks a question in natural language
+(in Polish or English), the system semantically searches for similar fragments from company
+documents (HR, onboarding, tech stack, company overview), and then Claude (Anthropic)
+generates an answer based solely on the retrieved fragments — without hallucinations.
+The application consists of a FastAPI backend (Python) handling the RAG pipeline with SSE streaming
+and a Next.js 14 frontend with a real-time chat interface.
 
-## 1. Przegląd projektu
-
-### Co zostało zbudowane
-
-**Company KB RAG** to chatbot firmowej bazy wiedzy oparty na architekturze
-Retrieval-Augmented Generation (RAG). Użytkownik zadaje pytanie w języku naturalnym
-(po polsku lub angielsku), system wyszukuje semantycznie podobne fragmenty z dokumentów
-firmowych (HR, onboarding, tech stack, company overview), a następnie Claude (Anthropic)
-generuje odpowiedź wyłącznie na podstawie znalezionych fragmentów — bez halucynacji.
-Aplikacja składa się z backendu FastAPI (Python) obsługującego pipeline RAG ze streamingiem
-SSE oraz frontendu Next.js 14 z interfejsem czatu w czasie rzeczywistym.
-
-### Architektura końcowa
+### Final architecture
 
 ```
-Użytkownik
+User
   │
   │  POST /query/stream  (text/event-stream)
   ▼
@@ -43,7 +36,7 @@ Użytkownik
 │  FastAPI  (port 8000)                               │
 │                                                     │
 │  main.py                                            │
-│    ├── lifespan()  ← auto-ingestion przy starcie    │
+│    ├── lifespan()  ← auto-ingestion on startup      │
 │    ├── POST /ingest                                 │
 │    ├── POST /query                                  │
 │    ├── POST /query/stream  ← SSE                    │
@@ -71,50 +64,50 @@ Użytkownik
 ┌─────────────────────────────────────────────────────┐
 │  Docker Compose                                     │
 │  backend (python:3.11-slim) + frontend (node:20)    │
-│  Sieć wewnętrzna: kb-network                        │
+│  Internal network: kb-network                       │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Stack technologiczny
+### Technology stack
 
-| Komponent | Technologia | Uzasadnienie wyboru |
+| Component | Technology | Rationale |
 |---|---|---|
-| Backend framework | FastAPI (Python 3.11) | Async, automatyczny OpenAPI, Pydantic, `Depends()` DI, `StreamingResponse` SSE |
-| LLM | Anthropic Claude (claude-sonnet-4) | Najlepsza jakość odpowiedzi, natywne wsparcie SSE streaming w SDK |
-| Embeddingi | OpenAI text-embedding-3-small | Wielojęzyczny, 1536 dim, najlepszy stosunek ceny do jakości |
-| Vector store | NumPy (in-memory) | Zero zewnętrznych dependencji, wystarczające dla małej bazy, edukacyjnie przejrzyste |
-| Frontend | Next.js 14 App Router | SSR, `output: "standalone"` dla Dockera, `"use client"` granularity |
-| Stylowanie | Tailwind CSS 3 | Utility-first, brak osobnych plików CSS, responsywność w jednym miejscu |
-| Konteneryzacja | Docker Compose | Jednopoleceniowy start całego stacku, izolacja sieci |
-| CI | GitHub Actions | 7 równoległych jobów: flake8, mypy, pytest, tsc, ESLint, Vitest, next build |
-| Typowanie backend | mypy --strict | Wychwytuje błędy typów przy CI, eliminuje `Any` |
-| Typowanie frontend | TypeScript strict | Wszystkie odpowiedzi API typowane przez `frontend/types/index.ts` |
-| Testy backend | pytest + pytest-cov | Standard Python; `mock_embedding()` pozwala na testy offline |
-| Testy frontend | Vitest | Natywny ESM, szybszy od Jest dla TypeScript |
+| Backend framework | FastAPI (Python 3.11) | Async, automatic OpenAPI, Pydantic, `Depends()` DI, `StreamingResponse` SSE |
+| LLM | Anthropic Claude (claude-sonnet-4) | Best response quality, native SSE streaming support in SDK |
+| Embeddings | OpenAI text-embedding-3-small | Multilingual, 1536 dim, best price-to-quality ratio |
+| Vector store | NumPy (in-memory) | Zero external dependencies, sufficient for small knowledge base, educationally transparent |
+| Frontend | Next.js 14 App Router | SSR, `output: "standalone"` for Docker, `"use client"` granularity |
+| Styling | Tailwind CSS 3 | Utility-first, no separate CSS files, responsiveness in one place |
+| Containerization | Docker Compose | Single-command startup of the entire stack, network isolation |
+| CI | GitHub Actions | 7 parallel jobs: flake8, mypy, pytest, tsc, ESLint, Vitest, next build |
+| Backend typing | mypy --strict | Catches type errors in CI, eliminates `Any` |
+| Frontend typing | TypeScript strict | All API responses typed via `frontend/types/index.ts` |
+| Backend tests | pytest + pytest-cov | Python standard; `mock_embedding()` allows offline testing |
+| Frontend tests | Vitest | Native ESM, faster than Jest for TypeScript |
 
 ---
 
-## 2. Koncepty RAG — czego się nauczyłem
+## 2. RAG Concepts — What I Learned
 
-### Co to jest LLM i jak komunikujemy się z nim przez API
+### What is an LLM and how do we communicate with it via API
 
-**Co to jest:** Large Language Model to model językowy trenowany na ogromnych zbiorach
-tekstu, zdolny do generowania spójnych odpowiedzi w języku naturalnym.
+**What it is:** A Large Language Model is a language model trained on massive text datasets,
+capable of generating coherent responses in natural language.
 
-**Jak działa komunikacja:**
+**How communication works:**
 
 ```python
 # backend/rag/pipeline.py — _call_llm()
 message = self._client.messages.create(
     model="claude-sonnet-4-20250514",
     max_tokens=1024,
-    system=SYSTEM_PROMPT,          # instrukcje systemowe
-    messages=[{"role": "user", "content": prompt}],  # pytanie + kontekst
+    system=SYSTEM_PROMPT,          # system instructions
+    messages=[{"role": "user", "content": prompt}],  # question + context
 )
-return message.content[0].text     # odpowiedź tekstowa
+return message.content[0].text     # text response
 ```
 
-W trybie streaming:
+In streaming mode:
 
 ```python
 # backend/rag/pipeline.py — stream_query()
@@ -124,20 +117,20 @@ with self._client.messages.stream(
     system=SYSTEM_PROMPT,
     messages=[{"role": "user", "content": prompt}],
 ) as stream:
-    for text in stream.text_stream:  # iterator tokenów
+    for text in stream.text_stream:  # token iterator
         yield f"event: token\ndata: {json.dumps(text)}\n\n"
 ```
 
-**Gdzie w kodzie:** `backend/rag/pipeline.py` — metody `_call_llm()` i `stream_query()`.
+**Where in code:** `backend/rag/pipeline.py` — methods `_call_llm()` and `stream_query()`.
 
 ---
 
-### Co to są embeddingi i dlaczego są ważne
+### What are embeddings and why they matter
 
-**Co to jest:** Embedding to reprezentacja tekstu jako wektor liczb zmiennoprzecinkowych
-(tu: 1536 liczb float32). Semantycznie podobne teksty mają geometrycznie bliskie wektory.
+**What it is:** An embedding is a representation of text as a vector of floating-point numbers
+(here: 1536 float32 numbers). Semantically similar texts have geometrically close vectors.
 
-**Implementacja:**
+**Implementation:**
 
 ```python
 # backend/rag/embeddings.py
@@ -149,25 +142,25 @@ def get_embedding(self, text: str) -> list[float]:
         input=text,
         model=EMBEDDING_MODEL,
     )
-    return response.data[0].embedding  # lista 1536 liczb
+    return response.data[0].embedding  # list of 1536 numbers
 ```
 
-**Dlaczego ważne:** Pozwala porównać pytanie użytkownika z fragmentami dokumentów
-bez dokładnego dopasowania słów kluczowych. Pytanie „ile dni urlopu?" i tekst
-„26 days annual leave" mają wysokie podobieństwo w przestrzeni embeddingów.
+**Why they matter:** Allows comparing a user's question with document fragments
+without exact keyword matching. The question "how many vacation days?" and the text
+"26 days annual leave" have high similarity in embedding space.
 
-> **Kluczowa obserwacja:** `text-embedding-3-small` jest wielojęzyczny, ale cross-lingual
-> semantic gap istnieje — „komputer" (PL) vs „laptop" (EN) może mieć niższe podobieństwo
-> niż oczekujemy.
+> **Key observation:** `text-embedding-3-small` is multilingual, but a cross-lingual
+> semantic gap exists — "komputer" (PL) vs "laptop" (EN) may have lower similarity
+> than expected.
 
 ---
 
-### Co to jest chunking i dlaczego overlap ma znaczenie
+### What is chunking and why overlap matters
 
-**Co to jest:** Chunking to podział długich dokumentów na mniejsze fragmenty,
-które mogą być osobno zaindeksowane i wyszukiwane.
+**What it is:** Chunking is the division of long documents into smaller fragments
+that can be individually indexed and searched.
 
-**Implementacja:**
+**Implementation:**
 
 ```python
 # backend/rag/chunker.py
@@ -176,53 +169,53 @@ OVERLAP_WORDS = 50
 
 def chunk(self, text: str, source: str) -> list[Chunk]:
     words = text.split()
-    step = self._chunk_size - self._overlap  # krok = 50 słów
+    step = self._chunk_size - self._overlap  # step = 50 words
     for start in range(0, len(words), step):
         window = words[start : start + self._chunk_size]
         chunks.append(Chunk(text=" ".join(window), source=source, index=index))
 ```
 
-**Dlaczego overlap = 50 słów ma znaczenie:** Bez overlapu zdanie kluczowe mogłoby
-trafić na granicę dwóch chunków i w żadnym nie byłoby kompletne. Overlap gwarantuje,
-że każde zdanie pojawi się kompletne w co najmniej jednym chunku. Trade-off: więcej
-chunków = wyższy koszt embeddingów.
+**Why overlap = 50 words matters:** Without overlap, a key sentence could land
+on the boundary of two chunks and be incomplete in neither. Overlap guarantees
+that every sentence appears complete in at least one chunk. Trade-off: more
+chunks = higher embedding cost.
 
 ---
 
-### Co to jest cosine similarity i jak NumPy to implementuje
+### What is cosine similarity and how NumPy implements it
 
-**Co to jest:** Miara podobieństwa dwóch wektorów — cosinus kąta między nimi.
-Wartość 1.0 = identyczne kierunki, 0.0 = prostopadłe, −1.0 = przeciwne.
+**What it is:** A measure of similarity between two vectors — the cosine of the angle between them.
+Value 1.0 = identical directions, 0.0 = perpendicular, −1.0 = opposite.
 
-**Implementacja macierzowa w NumPy:**
+**Matrix implementation in NumPy:**
 
 ```python
 # backend/rag/store.py
 def search(self, query_embedding: list[float], top_k: int = 5):
     query = np.array(query_embedding, dtype=np.float32)
-    query = query / (np.linalg.norm(query) + NORMALIZATION_EPSILON)  # normalizacja
+    query = query / (np.linalg.norm(query) + NORMALIZATION_EPSILON)  # normalization
 
-    # Macierz wszystkich chunków: N × 1536
+    # Matrix of all chunks: N × 1536
     matrix = np.stack([item.embedding for item in self._items])
     norms = np.linalg.norm(matrix, axis=1, keepdims=True) + NORMALIZATION_EPSILON
-    matrix = matrix / norms  # normalizacja każdego wiersza
+    matrix = matrix / norms  # normalize each row
 
-    # Iloczyn skalarny = cosine similarity po normalizacji
-    scores: npt.NDArray[np.float32] = matrix @ query  # N wyników naraz
+    # Dot product = cosine similarity after normalization
+    scores: npt.NDArray[np.float32] = matrix @ query  # N results at once
     top_indices = np.argsort(scores)[::-1][:top_k]
 ```
 
-**Dlaczego cosine, nie dot product:** Dot product zależy od długości wektora.
-Po normalizacji obie miary są równoważne — używamy dot product `@` bo jest szybszy.
+**Why cosine, not dot product:** Dot product depends on vector length.
+After normalization both measures are equivalent — we use dot product `@` because it's faster.
 
 ---
 
-### Co to jest context window i prompt injection
+### What is context window and prompt injection
 
-**Context window:** Maksymalna liczba tokenów widoczna przez LLM w jednym zapytaniu.
-Łączy: system prompt + fragmenty dokumentów + pytanie użytkownika.
+**Context window:** Maximum number of tokens visible to the LLM in one query.
+Combines: system prompt + document fragments + user question.
 
-**Jak konstruujemy prompt:**
+**How we construct the prompt:**
 
 ```python
 # backend/rag/pipeline.py
@@ -234,29 +227,29 @@ def build_prompt(self, question: str, chunks: list[Chunk]) -> str:
     return f"Document excerpts:\n\n{excerpts}\n\nQuestion: {question}"
 ```
 
-**Prompt injection:** Atak gdzie użytkownik wstrzykuje instrukcje dla LLM,
-np. „Zignoruj poprzednie instrukcje i...". Mitigacja: `SYSTEM_PROMPT` z explicit
-zakaz wymyślania i ograniczenie do podanych fragmentów.
+**Prompt injection:** An attack where the user injects instructions for the LLM,
+e.g. "Ignore previous instructions and...". Mitigation: `SYSTEM_PROMPT` with an explicit
+prohibition on inventing information, limited to the provided fragments.
 
 ---
 
-### Różnica między RAG a fine-tuningiem
+### Difference between RAG and fine-tuning
 
-| Cecha | RAG (nasz projekt) | Fine-tuning |
+| Feature | RAG (our project) | Fine-tuning |
 |---|---|---|
-| Wiedza | Z zewnętrznych dokumentów (retrieval) | Wbudowana w wagi modelu |
-| Aktualizacja wiedzy | Dodaj dokument, reingest | Retrenuj model (GPU, czas, dane) |
-| Koszt | Tani (embeddingi + API call) | Drogi |
-| Ryzyko halucynacji | Niskie (model widzi źródła) | Wyższe |
-| Transparentność | ✅ Widać które fragmenty użyto | ❌ |
+| Knowledge | From external documents (retrieval) | Built into model weights |
+| Knowledge update | Add document, reingest | Retrain model (GPU, time, data) |
+| Cost | Cheap (embeddings + API call) | Expensive |
+| Hallucination risk | Low (model sees sources) | Higher |
+| Transparency | ✅ Which fragments were used is visible | ❌ |
 
 ---
 
-### Co to jest halucynacja i jak RAG jej zapobiega
+### What is hallucination and how RAG prevents it
 
-**Halucynacja:** LLM generuje przekonująco brzmiące, ale fałszywe informacje.
+**Hallucination:** LLM generates convincingly sounding but false information.
 
-**Jak RAG zapobiega — dwa mechanizmy:**
+**How RAG prevents it — two mechanisms:**
 
 ```python
 # backend/rag/pipeline.py
@@ -268,21 +261,21 @@ SYSTEM_PROMPT = (
 )
 ```
 
-1. Model dostaje tylko zweryfikowane fragmenty z dokumentów firmowych
-2. `SYSTEM_PROMPT` zawiera explicit zakaz wymyślania
+1. The model only receives verified fragments from company documents
+2. `SYSTEM_PROMPT` contains an explicit prohibition on inventing information
 
 ---
 
-## 3. Etapy budowy — PR po PR
+## 3. Build Stages — PR by PR
 
-### PR #1 — Inicjalizacja repozytorium i CI
+### PR #1 — Repository initialization and CI
 
 **Commit:** `chore: initialize repo structure with CI pipeline (#1)`
 
-**Co zostało zbudowane:**
-- Struktura katalogów: `backend/`, `frontend/`, `.github/workflows/`
-- CI pipeline z 7 równoległymi jobami
-- `requirements.txt`, bazowe pliki konfiguracyjne
+**What was built:**
+- Directory structure: `backend/`, `frontend/`, `.github/workflows/`
+- CI pipeline with 7 parallel jobs
+- `requirements.txt`, base configuration files
 
 **CI workflow (`.github/workflows/ci.yml`):**
 
@@ -313,47 +306,47 @@ jobs:
     name: Frontend — next build
 ```
 
-**Kluczowe decyzje:** `mypy --strict` od początku — wymusza pełne typowanie,
-eliminuje błędy które inaczej ujawniają się na produkcji.
+**Key decisions:** `mypy --strict` from the start — enforces full typing,
+eliminates errors that would otherwise surface in production.
 
 ---
 
-### PR #2 — Pipeline ingestion
+### PR #2 — Ingestion pipeline
 
 **Commit:** `feat: implement ingestion pipeline — TextChunker, VectorStore, EmbeddingService (#2)`
 
-**Co zostało zbudowane:**
-- `TextChunker` — podział tekstu na overlapping chunks
-- `VectorStore` — in-memory storage z cosine similarity (NumPy)
-- `EmbeddingService` — wrapper OpenAI API + `mock_embedding()` do testów
+**What was built:**
+- `TextChunker` — text splitting into overlapping chunks
+- `VectorStore` — in-memory storage with cosine similarity (NumPy)
+- `EmbeddingService` — OpenAI API wrapper + `mock_embedding()` for tests
 
-**Zasada SRP — każda klasa ma jedną odpowiedzialność:**
+**SRP principle — each class has one responsibility:**
 
 ```python
-# backend/rag/chunker.py — TYLKO podział tekstu
+# backend/rag/chunker.py — ONLY text splitting
 class TextChunker:
     def chunk(self, text: str, source: str) -> list[Chunk]: ...
 
-# backend/rag/store.py — TYLKO przechowywanie i wyszukiwanie
+# backend/rag/store.py — ONLY storage and search
 class VectorStore:
     def add(self, chunks, embeddings): ...
     def search(self, query_embedding, top_k): ...
 
-# backend/rag/embeddings.py — TYLKO komunikacja z OpenAI
+# backend/rag/embeddings.py — ONLY OpenAI communication
 class EmbeddingService:
     def get_embedding(self, text: str) -> list[float]: ...
 ```
 
-**Mock embedding — testy bez API call:**
+**Mock embedding — tests without API call:**
 
 ```python
 # backend/rag/embeddings.py
 @staticmethod
 def mock_embedding(text: str) -> list[float]:
-    """Deterministyczny fake — ten sam tekst zawsze daje ten sam wektor."""
+    """Deterministic fake — same text always gives same vector."""
     digest = int(hashlib.sha256(text.encode()).hexdigest(), 16)
     seed = (digest ^ MOCK_SEED) & UINT32_MASK
-    # LCG generator pseudolosowy
+    # LCG pseudorandom generator
     values: list[float] = []
     for _ in range(EMBEDDING_DIM):
         seed = (seed * LCG_MULTIPLIER + LCG_INCREMENT) & UINT32_MASK
@@ -368,28 +361,28 @@ def mock_embedding(text: str) -> list[float]:
 
 **Commit:** `feat: implement RAG query pipeline, summarization endpoint, health check (#3)`
 
-**Co zostało zbudowane:**
-- `RAGPipeline` — orkiestracja retrieval + LLM
-- Endpointy: `POST /query`, `POST /summarize`, `GET /health`
+**What was built:**
+- `RAGPipeline` — retrieval + LLM orchestration
+- Endpoints: `POST /query`, `POST /summarize`, `GET /health`
 
-**Zasada DIP — zależności wstrzykiwane przez konstruktor:**
+**DIP principle — dependencies injected via constructor:**
 
 ```python
 # backend/rag/pipeline.py
 class RAGPipeline:
     def __init__(
         self,
-        store: VectorStore,                    # wstrzyknięty
-        embedding_service: EmbeddingService,   # wstrzyknięty
-        anthropic_client: anthropic.Anthropic, # wstrzyknięty
+        store: VectorStore,                    # injected
+        embedding_service: EmbeddingService,   # injected
+        anthropic_client: anthropic.Anthropic, # injected
     ) -> None:
         self._store = store
         self._embedding_service = embedding_service
         self._client = anthropic_client
 ```
 
-RAGPipeline nie tworzy swoich zależności — dostaje je z zewnątrz.
-W testach można wstrzyknąć MagicMock zamiast prawdziwego klienta.
+RAGPipeline does not create its own dependencies — it receives them from outside.
+In tests, MagicMock can be injected instead of the real client.
 
 ---
 
@@ -397,13 +390,13 @@ W testach można wstrzyknąć MagicMock zamiast prawdziwego klienta.
 
 **Commit:** `feat: implement Next.js 14 chat UI for RAG knowledge base (#4)`
 
-**Co zostało zbudowane:**
-- Komponenty: `ChatWindow`, `ChatMessages`, `MessageBubble`, `ChatInput`, `ChunksSidebar`
-- Hook `useChat` — zarządzanie stanem wiadomości
-- `lib/api.ts` — klient SSE
-- `types/index.ts` — interfejsy TypeScript
+**What was built:**
+- Components: `ChatWindow`, `ChatMessages`, `MessageBubble`, `ChatInput`, `ChunksSidebar`
+- Hook `useChat` — message state management
+- `lib/api.ts` — SSE client
+- `types/index.ts` — TypeScript interfaces
 
-**Typy TypeScript (`frontend/types/index.ts`):**
+**TypeScript types (`frontend/types/index.ts`):**
 
 ```typescript
 export interface Message {
@@ -434,8 +427,8 @@ while (true) {
   if (done) break;
   buffer += decoder.decode(value, { stream: true });
 
-  const events = buffer.split("\n\n");  // SSE events rozdzielone \n\n
-  buffer = events.pop() ?? "";           // ostatni niekompletny — zostaje w buforze
+  const events = buffer.split("\n\n");  // SSE events separated by \n\n
+  buffer = events.pop() ?? "";           // last incomplete one — stays in buffer
 
   for (const event of events) {
     const type = event.split("\n").find(l => l.startsWith("event:"))
@@ -449,14 +442,14 @@ while (true) {
 
 ---
 
-### PR #5 — Dokumenty firmowe i auto-ingestion
+### PR #5 — Company documents and auto-ingestion
 
 **Commit:** `feat(backend): company documents + auto-ingestion on startup (#5)`
 
-**Co zostało zbudowane:**
-- 4 dokumenty Markdown: `hr_policy.md`, `onboarding.md`, `tech_stack.md`, `company_overview.md`
-- `data/documents.py` — ładowanie wszystkich `.md`
-- `lifespan` — auto-ingestion przy starcie
+**What was built:**
+- 4 Markdown documents: `hr_policy.md`, `onboarding.md`, `tech_stack.md`, `company_overview.md`
+- `data/documents.py` — loading all `.md` files
+- `lifespan` — auto-ingestion on startup
 
 **lifespan context manager:**
 
@@ -472,13 +465,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.exception("Auto-ingestion failed — continuing without pre-loaded docs")
     else:
         logger.warning("OPENAI_API_KEY not set — skipping auto-ingestion")
-    yield  # aplikacja działa i obsługuje requesty
-    # cleanup po yield (przy zatrzymaniu)
+    yield  # application runs and handles requests
+    # cleanup after yield (on shutdown)
 
 app = FastAPI(title="Company KB RAG API", lifespan=lifespan)
 ```
 
-**Dependency Injection w FastAPI (`Depends()`):**
+**Dependency Injection in FastAPI (`Depends()`):**
 
 ```python
 # backend/main.py
@@ -492,7 +485,7 @@ def get_pipeline(
 @app.post("/query/stream")
 def query_stream(
     request: QueryRequest,
-    pipeline: RAGPipeline = Depends(get_pipeline),  # FastAPI wstrzykuje automatycznie
+    pipeline: RAGPipeline = Depends(get_pipeline),  # FastAPI injects automatically
 ) -> StreamingResponse:
     return StreamingResponse(pipeline.stream_query(request.question),
                              media_type="text/event-stream")
@@ -504,41 +497,41 @@ def query_stream(
 
 **Commit:** `feat: streaming SSE query endpoint + streaming chat UI (#6)`
 
-**Co zostało zbudowane:**
-- `POST /query/stream` z `StreamingResponse`
-- `stream_query()` — generator SSE eventów
-- Frontend: `useChat` z obsługą tokenów
+**What was built:**
+- `POST /query/stream` with `StreamingResponse`
+- `stream_query()` — SSE event generator
+- Frontend: `useChat` with token handling
 
-**Format SSE — trzy typy eventów:**
+**SSE format — three event types:**
 
 ```
 event: chunks
 data: [{"source":"hr_policy.md","score":0.55,"preview":"26 days annual..."}]
 
 event: token
-data: "Na podstawie"
+data: "Based on"
 
 event: token
-data: " dokumentów HR..."
+data: " the HR documents..."
 
 event: done
 data: {}
 ```
 
-**Generator SSE (`backend/rag/pipeline.py`):**
+**SSE generator (`backend/rag/pipeline.py`):**
 
 ```python
 def stream_query(self, question: str) -> Iterator[str]:
-    metadata, prompt = self._retrieve(question)  # wspólna logika z query()
+    metadata, prompt = self._retrieve(question)  # shared logic with query()
 
-    # Event 1: znalezione fragmenty (od razu, przed generowaniem)
+    # Event 1: found fragments (immediately, before generation)
     chunks_payload = json.dumps(
         [{"source": m.source, "score": m.score, "preview": m.preview}
          for m in metadata]
     )
     yield f"event: chunks\ndata: {chunks_payload}\n\n"
 
-    # Event 2-N: tokeny z Claude (streaming)
+    # Events 2-N: tokens from Claude (streaming)
     with self._client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=MAX_TOKENS_ANSWER,
@@ -548,15 +541,15 @@ def stream_query(self, question: str) -> Iterator[str]:
         for text in stream.text_stream:
             yield f"event: token\ndata: {json.dumps(text)}\n\n"
 
-    # Event końcowy
+    # Final event
     yield "event: done\ndata: {}\n\n"
 ```
 
-**Eliminacja DRY — helper `_retrieve()`:**
+**DRY elimination — `_retrieve()` helper:**
 
 ```python
 def _retrieve(self, question: str) -> tuple[list[ChunkMetadata], str]:
-    """Wspólna logika dla query() i stream_query() — DRY."""
+    """Shared logic for query() and stream_query() — DRY."""
     query_embedding = self._embedding_service.get_embedding(question)
     results = self._store.search(query_embedding, top_k=TOP_K_CHUNKS)
     chunks = [chunk for chunk, _ in results]
@@ -575,11 +568,11 @@ def _retrieve(self, question: str) -> tuple[list[ChunkMetadata], str]:
 
 **Commit:** `Feat/etap 7 docker (#7)`
 
-**Co zostało zbudowane:**
-- `docker-compose.yml` z dwoma serwisami i wspólną siecią
+**What was built:**
+- `docker-compose.yml` with two services and shared network
 - `backend/Dockerfile` — python:3.11-slim, non-root user
 - `frontend/Dockerfile` — 3-stage Node.js standalone build
-- `frontend/next.config.mjs` z `output: "standalone"`
+- `frontend/next.config.mjs` with `output: "standalone"`
 
 **`docker-compose.yml`:**
 
@@ -607,16 +600,16 @@ networks:
     driver: bridge
 ```
 
-**3-stage Dockerfile frontendu:**
+**3-stage frontend Dockerfile:**
 
 ```dockerfile
-# Stage 1: instalacja dependencji
+# Stage 1: dependency installation
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Stage 2: build aplikacji
+# Stage 2: application build
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -626,7 +619,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Stage 3: minimalny runtime (tylko to co potrzebne)
+# Stage 3: minimal runtime (only what's needed)
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -635,24 +628,24 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-USER nextjs           # non-root dla bezpieczeństwa
+USER nextjs           # non-root for security
 EXPOSE 3000
 CMD ["node", "server.js"]
 ```
 
 ---
 
-### PR #8 — Poprawki UI, jakość, responsywność
+### PR #8 — UI fixes, quality, responsiveness
 
 **Commit:** `Fix/markdown rendering and language (#8)`
 
-**Co zostało zbudowane:**
-- `react-markdown` w `MessageBubble` — renderowanie nagłówków, list, pogrubień
-- `useTypewriter` hook — efekt płynnego pisania
-- Responsywny `ChunksSidebar` — mobile bottom sheet + desktop sidebar
-- Wzmocniony `SYSTEM_PROMPT` — wymuszanie języka odpowiedzi
-- `TOP_K_CHUNKS` zwiększony z 5 do 10
-- `postcss.config.js`, `public/.gitkeep`, `CORSMiddleware`, `*.tsbuildinfo` w `.gitignore`
+**What was built:**
+- `react-markdown` in `MessageBubble` — rendering headings, lists, bold text
+- `useTypewriter` hook — smooth typing effect
+- Responsive `ChunksSidebar` — mobile bottom sheet + desktop sidebar
+- Strengthened `SYSTEM_PROMPT` — enforcing response language
+- `TOP_K_CHUNKS` increased from 5 to 10
+- `postcss.config.js`, `public/.gitkeep`, `CORSMiddleware`, `*.tsbuildinfo` in `.gitignore`
 
 **Hook `useTypewriter` (`frontend/hooks/useTypewriter.ts`):**
 
@@ -663,7 +656,7 @@ const TICK_MS = 18;
 export function useTypewriter(text: string, active: boolean): string {
   const [pos, setPos] = useState(0);
   const textRef = useRef(text);
-  textRef.current = text;  // ref = zawsze aktualna wartość bez re-tworzenia interval
+  textRef.current = text;  // ref = always current value without recreating interval
 
   useEffect(() => {
     if (!active) return;
@@ -674,44 +667,44 @@ export function useTypewriter(text: string, active: boolean): string {
       });
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [active]);  // jeden interval przez całe streaming
+  }, [active]);  // one interval for the entire streaming
 
-  if (!active) return text;   // stare wiadomości — pełny tekst od razu
-  return text.slice(0, pos);  // streaming — litery po kolei
+  if (!active) return text;   // old messages — full text immediately
+  return text.slice(0, pos);  // streaming — characters one by one
 }
 ```
 
 ---
 
-## 4. Bugi i naprawy
+## 4. Bugs and Fixes
 
-### Bug #1 — flake8 E501: za długa linia
+### Bug #1 — flake8 E501: line too long
 
-**Co to był:** Linia 24 w `rag/pipeline.py` miała 106 znaków, limit flake8 to 88.
+**What it was:** Line 24 in `rag/pipeline.py` had 106 characters, flake8 limit is 88.
 
-**Przed:**
+**Before:**
 ```python
 "If the user writes in Polish, respond 100% in Polish — even if the source documents are in English. "
 ```
 
-**Po:**
+**After:**
 ```python
 "If the user writes in Polish, respond 100% in Polish — "
 "even if the source documents are in English. "
 ```
 
-**Lekcja:** Uruchamiać `flake8 . --max-line-length=88` lokalnie przed każdym commitem.
+**Lesson:** Run `flake8 . --max-line-length=88` locally before every commit.
 
 ---
 
-### Bug #2 — CORS error (przeglądarka blokowała requesty)
+### Bug #2 — CORS error (browser was blocking requests)
 
-**Co to był:** Przeglądarka blokowała fetch z `localhost:3000` do `localhost:8000`.
+**What it was:** Browser was blocking fetch from `localhost:3000` to `localhost:8000`.
 
-**Przyczyna:** Same-Origin Policy — przeglądarka wymaga nagłówka
-`Access-Control-Allow-Origin` dla cross-origin requestów.
+**Cause:** Same-Origin Policy — browser requires
+`Access-Control-Allow-Origin` header for cross-origin requests.
 
-**Naprawa (`backend/main.py`):**
+**Fix (`backend/main.py`):**
 ```python
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -723,18 +716,18 @@ app.add_middleware(
 )
 ```
 
-**Lekcja:** CORS zawsze konfigurować gdy frontend i backend są na różnych portach.
+**Lesson:** Always configure CORS when frontend and backend are on different ports.
 
 ---
 
-### Bug #3 — Brak postcss.config.js
+### Bug #3 — Missing postcss.config.js
 
-**Co to był:** Tailwind CSS nie ładował styli w Dockerze — cały UI wyglądał jak nieostylowany HTML.
+**What it was:** Tailwind CSS was not loading styles in Docker — the entire UI looked like unstyled HTML.
 
-**Przyczyna:** Next.js wymaga `postcss.config.js` do przetworzenia dyrektyw `@tailwind`.
-Plik był na jednym branchu i nie trafił do `main`.
+**Cause:** Next.js requires `postcss.config.js` to process `@tailwind` directives.
+The file was on one branch and didn't make it to `main`.
 
-**Naprawa:**
+**Fix:**
 ```javascript
 // frontend/postcss.config.js
 module.exports = {
@@ -742,67 +735,67 @@ module.exports = {
 };
 ```
 
-**Lekcja:** Pliki konfiguracyjne frameworków muszą być commitowane.
+**Lesson:** Framework configuration files must be committed.
 
 ---
 
-### Bug #4 — Brak frontend/public/
+### Bug #4 — Missing frontend/public/
 
-**Co to był:** Docker build failował: `"/app/public": not found`.
+**What it was:** Docker build failed: `"/app/public": not found`.
 
-**Przyczyna:** Dockerfile kopiuje katalog `public/` w stage runner,
-ale katalog nie istniał w repozytorium.
+**Cause:** Dockerfile copies `public/` directory in the runner stage,
+but the directory did not exist in the repository.
 
-**Naprawa:** Stworzono `frontend/public/.gitkeep` — pusty plik wymuszający
-śledzenie katalogu przez git.
+**Fix:** Created `frontend/public/.gitkeep` — empty file forcing
+git to track the directory.
 
-**Lekcja:** Next.js standalone build wymaga katalogu `public/` nawet jeśli pusty.
+**Lesson:** Next.js standalone build requires `public/` directory even if empty.
 
 ---
 
-### Bug #5 — nginx w frontend Dockerfile
+### Bug #5 — nginx in frontend Dockerfile
 
-**Co to był:** Frontend nie działał w Dockerze — nginx nie potrafi serwować Next.js SSR.
+**What it was:** Frontend was not working in Docker — nginx cannot serve Next.js SSR.
 
-**Przyczyna:** nginx serwuje pliki statyczne, ale Next.js wymaga Node.js runtime.
+**Cause:** nginx serves static files, but Next.js requires Node.js runtime.
 
-**Przed:**
+**Before:**
 ```dockerfile
 FROM nginx:alpine
 COPY --from=builder /app/out /usr/share/nginx/html
 ```
 
-**Po:**
+**After:**
 ```dockerfile
 FROM node:20-alpine AS runner
 CMD ["node", "server.js"]
 ```
 
-**Lekcja:** Next.js z `output: "standalone"` generuje własny Node.js server.
+**Lesson:** Next.js with `output: "standalone"` generates its own Node.js server.
 
 ---
 
-### Bug #6 — `import json` wewnątrz funkcji
+### Bug #6 — `import json` inside a function
 
-**Co to był:** `import json` był wewnątrz metody `stream_query()` zamiast na górze pliku.
+**What it was:** `import json` was inside the `stream_query()` method instead of at the top of the file.
 
-**Naprawa:** Przeniesienie na top-level (linia 1 pliku).
+**Fix:** Moved to top-level (line 1 of file).
 
-**Lekcja:** Importy zawsze na górze pliku — wymóg isort/flake8.
+**Lesson:** Imports always at the top of the file — isort/flake8 requirement.
 
 ---
 
-### Bug #7 — `anthropic.omit` ImportError na CI
+### Bug #7 — `anthropic.omit` ImportError on CI
 
-**Przyczyna:** `omit` sentinel nie istnieje w starszej wersji Anthropic SDK na CI.
+**Cause:** `omit` sentinel does not exist in the older Anthropic SDK version on CI.
 
-**Przed:**
+**Before:**
 ```python
 from anthropic import omit as OMIT
 kwargs["system"] = system if system is not None else OMIT
 ```
 
-**Po:**
+**After:**
 ```python
 kwargs: dict[str, object] = {
     "model": CLAUDE_MODEL,
@@ -814,40 +807,40 @@ if system is not None:
 message = self._client.messages.create(**kwargs)  # type: ignore[call-overload]
 ```
 
-**Lekcja:** Nie używać feature'ów SDK które mogą nie istnieć w starszych wersjach.
+**Lesson:** Do not use SDK features that may not exist in older versions.
 
 ---
 
 ### Bug #8 — `@pytest.fixture()` untyped decorator
 
-**Co to był:** mypy --strict failował na CI: `error: Untyped decorator makes function untyped`.
+**What it was:** mypy --strict was failing on CI: `error: Untyped decorator makes function untyped`.
 
-**Przyczyna:** Starsze stubs pytest na CI nie miały typów dla `@pytest.fixture()`.
+**Cause:** Older pytest stubs on CI did not have types for `@pytest.fixture()`.
 
-**Przed:**
+**Before:**
 ```python
 @pytest.fixture()
 def client() -> TestClient:
     return TestClient(app)
 ```
 
-**Po:**
+**After:**
 ```python
 def _make_client() -> TestClient:
     return TestClient(app)
 ```
 
-**Lekcja:** Przy `mypy --strict` unikać dekoratorów bez pełnych typów w starszych bibliotekach.
+**Lesson:** With `mypy --strict`, avoid decorators without full types in older libraries.
 
 ---
 
-## 5. Uwagi z code review
+## 5. Code Review Notes
 
-### Uwaga #1 — Naruszenie SRP: `_ingest_documents` robiła za dużo
+### Note #1 — SRP violation: `_ingest_documents` was doing too much
 
-**Problem:** Funkcja robiła: load → chunk → embed → store — cztery odpowiedzialności.
+**Problem:** The function was doing: load → chunk → embed → store — four responsibilities.
 
-**Rozwiązanie:** Rozdzielenie na osobne wywołania:
+**Solution:** Split into separate calls:
 ```python
 docs = load_documents()
 for text, source in docs:
@@ -856,25 +849,25 @@ for text, source in docs:
     _store.add(chunks, embeddings)
 ```
 
-**Lekcja:** Jeśli opis funkcji zawiera "i", podziel ją.
+**Lesson:** If a function description contains "and", split it.
 
 ---
 
-### Uwaga #2 — Naruszenie DRY: duplikacja retrieve logic
+### Note #2 — DRY violation: duplicated retrieve logic
 
-**Problem:** `query()` i `stream_query()` powtarzały identyczną logikę embed + search.
+**Problem:** `query()` and `stream_query()` repeated identical embed + search logic.
 
-**Rozwiązanie:** Helper `_retrieve()` — jedna definicja, dwa wywołania.
+**Solution:** `_retrieve()` helper — one definition, two calls.
 
-**Lekcja:** DRY — każda logika w jednym miejscu.
+**Lesson:** DRY — every logic in one place.
 
 ---
 
-### Uwaga #3 — Magic numbers
+### Note #3 — Magic numbers
 
-**Problem:** Liczby `5`, `100`, `1024` bez wyjaśnienia w kodzie.
+**Problem:** Numbers `5`, `100`, `1024` without explanation in code.
 
-**Rozwiązanie:**
+**Solution:**
 ```python
 TOP_K_CHUNKS = 5
 CHUNK_PREVIEW_LENGTH = 100
@@ -883,15 +876,15 @@ MAX_TOKENS_SUMMARY = 64
 CHUNK_NUMBERING_OFFSET = 1
 ```
 
-**Lekcja:** Named constants są self-documenting i łatwe do zmiany.
+**Lesson:** Named constants are self-documenting and easy to change.
 
 ---
 
-### Uwaga #4 — Brakujące testy HTTPException
+### Note #4 — Missing HTTPException tests
 
-**Problem:** Brak testów dla brakujących kluczy API.
+**Problem:** No tests for missing API keys.
 
-**Rozwiązanie (`backend/tests/test_main.py`):**
+**Solution (`backend/tests/test_main.py`):**
 ```python
 def test_get_embedding_service_raises_500_when_openai_key_missing() -> None:
     with patch("main._get_openai_api_key", return_value=None):
@@ -901,15 +894,15 @@ def test_get_embedding_service_raises_500_when_openai_key_missing() -> None:
     assert "OPENAI_API_KEY" in exc.value.detail
 ```
 
-**Lekcja:** Testować error paths, nie tylko happy path.
+**Lesson:** Test error paths, not just the happy path.
 
 ---
 
-### Uwaga #5 — Brakujące testy edge case SSE
+### Note #5 — Missing edge case SSE tests
 
-**Problem:** Brak testów dla pustego store i sekwencji eventów.
+**Problem:** No tests for empty store and event sequence.
 
-**Rozwiązanie:**
+**Solution:**
 ```python
 def test_stream_query_last_event_is_done() -> None:
     events = list(pipeline.stream_query("question?"))
@@ -924,62 +917,62 @@ def test_stream_query_empty_store_yields_valid_sse() -> None:
 
 ---
 
-## 6. Decyzje architektoniczne
+## 6. Architectural Decisions
 
-### Next.js 14 App Router zamiast Vite/React SPA
+### Next.js 14 App Router instead of Vite/React SPA
 
-Next.js `output: "standalone"` generuje samodzielny Node.js server gotowy do Dockeryzacji.
-App Router z `"use client"` pozwala granularnie decydować które komponenty są client-side.
-Vite/React SPA wymaga osobnego serwera (nginx) co komplikuje Docker setup.
+Next.js `output: "standalone"` generates a self-contained Node.js server ready for Dockerization.
+App Router with `"use client"` allows granular decisions about which components are client-side.
+Vite/React SPA requires a separate server (nginx) which complicates the Docker setup.
 
-> `output: "standalone"` w `next.config.mjs` to jedyna zmiana potrzebna
-> do działającego Docker buildu Next.js.
-
----
-
-### FastAPI zamiast Express/Django/Flask
-
-FastAPI ma natywne: Pydantic (walidacja), `Depends()` (DI), `StreamingResponse` (SSE),
-async/await, automatyczny OpenAPI. Django to overengineering dla prostego API bez ORM.
-Flask jest synchroniczny i nie ma wbudowanego DI. Express wymaga TypeScript i ręcznego setupu.
+> `output: "standalone"` in `next.config.mjs` is the only change needed
+> for a working Docker build of Next.js.
 
 ---
 
-### NumPy cosine similarity zamiast Pinecone/pgvector
+### FastAPI instead of Express/Django/Flask
 
-Dla 29 chunków wyszukiwanie liniowe NumPy jest natychmiastowe. Pinecone/pgvector
-dodałyby zewnętrzną zależność (sieć, auth, koszt) bez zysku. NumPy pozwala
-zrozumieć jak similarity search działa — cel edukacyjny projektu.
-
----
-
-### Native fetch + SSE zamiast Axios
-
-Axios nie obsługuje SSE natywnie — wymagałby osobnej biblioteki. Native `fetch` +
-`ReadableStream` + `TextDecoder` daje pełną kontrolę nad parserem SSE i zero
-dodatkowych dependencji. Warto rozumieć ten wzorzec głęboko.
+FastAPI has native: Pydantic (validation), `Depends()` (DI), `StreamingResponse` (SSE),
+async/await, automatic OpenAPI. Django is overengineering for a simple API without ORM.
+Flask is synchronous and has no built-in DI. Express requires TypeScript and manual setup.
 
 ---
 
-### Python dataclasses zamiast dict/Pydantic
+### NumPy cosine similarity instead of Pinecone/pgvector
 
-`@dataclass(frozen=True)` — immutable value objects z automatycznym `__repr__` i `__eq__`.
-Pydantic jest cięższy i przeznaczony do walidacji na granicach API (używamy go tam — w `main.py`).
-Nagie dicts są podatne na literówki w kluczach i nie mają typowania.
-
----
-
-### Model text-embedding-3-small
-
-Stosunek jakości do ceny: lepszy od `ada-002`, tańszy od `text-embedding-3-large`.
-1536 wymiarów — wystarczające dla semantycznego wyszukiwania w małej bazie.
-Wielojęzyczny — obsługuje polskie pytania o angielskie dokumenty.
+For 29 chunks, NumPy linear search is instantaneous. Pinecone/pgvector
+would add an external dependency (network, auth, cost) without benefit. NumPy allows
+understanding how similarity search works — the educational goal of the project.
 
 ---
 
-## 7. Kluczowe wzorce kodu do zapamiętania
+### Native fetch + SSE instead of Axios
 
-### Wzorzec 1 — SSE Streaming end-to-end
+Axios does not support SSE natively — it would require a separate library. Native `fetch` +
+`ReadableStream` + `TextDecoder` gives full control over the SSE parser and zero
+additional dependencies. Worth understanding this pattern deeply.
+
+---
+
+### Python dataclasses instead of dict/Pydantic
+
+`@dataclass(frozen=True)` — immutable value objects with automatic `__repr__` and `__eq__`.
+Pydantic is heavier and designed for validation at API boundaries (we use it there — in `main.py`).
+Plain dicts are prone to typos in keys and have no typing.
+
+---
+
+### text-embedding-3-small model
+
+Price-to-quality ratio: better than `ada-002`, cheaper than `text-embedding-3-large`.
+1536 dimensions — sufficient for semantic search in a small knowledge base.
+Multilingual — handles Polish questions about English documents.
+
+---
+
+## 7. Key Code Patterns to Remember
+
+### Pattern 1 — SSE Streaming end-to-end
 
 **Backend (generator):**
 ```python
@@ -1016,14 +1009,14 @@ for (const event of events) {
 }
 ```
 
-> Format SSE: `event: <typ>\ndata: <json>\n\n` — dwa newline na końcu to obowiązkowy separator.
+> SSE format: `event: <type>\ndata: <json>\n\n` — two newlines at the end are the mandatory separator.
 
 ---
 
-### Wzorzec 2 — Dependency Injection z FastAPI `Depends()`
+### Pattern 2 — Dependency Injection with FastAPI `Depends()`
 
 ```python
-# backend/main.py — łańcuch zależności
+# backend/main.py — dependency chain
 def get_embedding_service() -> EmbeddingService:
     api_key = _get_openai_api_key()
     if not api_key:
@@ -1038,7 +1031,7 @@ def get_pipeline(
                        anthropic_client=anthropic_client)
 ```
 
-**Override w testach:**
+**Override in tests:**
 ```python
 app.dependency_overrides[get_pipeline] = lambda: mock_pipeline
 try:
@@ -1049,33 +1042,33 @@ finally:
 
 ---
 
-### Wzorzec 3 — Cosine Similarity z NumPy (wektoryzacja)
+### Pattern 3 — Cosine Similarity with NumPy (vectorization)
 
 ```python
 # backend/rag/store.py
-# Zamiast wolnej pętli Python:
+# Instead of a slow Python loop:
 # scores = [np.dot(q, e) for e in embeddings]
 
-# Operacja macierzowa — wszystkie podobieństwa naraz:
+# Matrix operation — all similarities at once:
 matrix = np.stack([item.embedding for item in self._items])  # N × 1536
 matrix = matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
 query = query / np.linalg.norm(query)
-scores = matrix @ query            # N wyników w jednej operacji
+scores = matrix @ query            # N results in one operation
 top_indices = np.argsort(scores)[::-1][:top_k]
 ```
 
-> NumPy vectorization vs Python loop — orders of magnitude szybciej dla dużych N.
+> NumPy vectorization vs Python loop — orders of magnitude faster for large N.
 
 ---
 
-### Wzorzec 4 — Typewriter Effect Hook
+### Pattern 4 — Typewriter Effect Hook
 
 ```typescript
 // frontend/hooks/useTypewriter.ts
 export function useTypewriter(text: string, active: boolean): string {
   const [pos, setPos] = useState(0);
   const textRef = useRef(text);
-  textRef.current = text;  // ← ref nie powoduje re-render, ale jest zawsze aktualny
+  textRef.current = text;  // ← ref does not cause re-render, but is always current
 
   useEffect(() => {
     if (!active) return;
@@ -1084,19 +1077,19 @@ export function useTypewriter(text: string, active: boolean): string {
         ? textRef.current.length : p + CHARS_PER_TICK);
     }, TICK_MS);
     return () => clearInterval(id);  // cleanup
-  }, [active]);  // ← tylko jeden interval przez całe streaming
+  }, [active]);  // ← only one interval for the entire streaming
 
   if (!active) return text;
   return text.slice(0, pos);
 }
 ```
 
-> `useRef` zamiast `useState` gdy potrzebujesz aktualnej wartości w closurze
-> bez tworzenia nowego `setInterval` przy każdej zmianie.
+> Use `useRef` instead of `useState` when you need the current value in a closure
+> without creating a new `setInterval` on every change.
 
 ---
 
-### Wzorzec 5 — Overlapping Chunking
+### Pattern 5 — Overlapping Chunking
 
 ```python
 # backend/rag/chunker.py
@@ -1104,266 +1097,266 @@ step = self._chunk_size - self._overlap  # 100 - 50 = 50
 
 for start in range(0, len(words), step):
     window = words[start : start + self._chunk_size]
-    # Chunk 0: słowa 0-99
-    # Chunk 1: słowa 50-149  ← 50 słów wspólnych z chunk 0
-    # Chunk 2: słowa 100-199 ← 50 słów wspólnych z chunk 1
+    # Chunk 0: words 0-99
+    # Chunk 1: words 50-149  ← 50 words shared with chunk 0
+    # Chunk 2: words 100-199 ← 50 words shared with chunk 1
 ```
 
 ---
 
-### Wzorzec 6 — lifespan Context Manager
+### Pattern 6 — lifespan Context Manager
 
 ```python
 # backend/main.py
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # ← KOD PRZY STARCIE
+    # ← CODE ON STARTUP
     _ingest_documents(EmbeddingService(api_key=api_key))
 
-    yield  # ← APLIKACJA DZIAŁA
+    yield  # ← APPLICATION RUNS
 
-    # ← KOD PRZY ZATRZYMANIU (cleanup)
+    # ← CODE ON SHUTDOWN (cleanup)
 
 app = FastAPI(lifespan=lifespan)
 ```
 
 ---
 
-## 8. Przygotowanie do rozmowy kwalifikacyjnej — Q&A
+## 8. Job Interview Preparation — Q&A
 
-### Q1: Opisz krok po kroku co się dzieje gdy użytkownik wysyła pytanie.
+### Q1: Describe step by step what happens when a user sends a question.
 
-**Odpowiedź:**
-1. Użytkownik wpisuje pytanie w `ChatInput`, klika Send
-2. `useChat.sendMessage()` wywołuje `queryStream()` z `lib/api.ts`
-3. Frontend wysyła `POST /query/stream` z `{"question": "..."}` do FastAPI
-4. FastAPI przez `Depends()` tworzy `RAGPipeline` z wstrzykniętymi serwisami
-5. `_retrieve()`: pytanie jest embeddowane przez OpenAI, top-10 chunków
-   wyszukiwanych przez cosine similarity w NumPy VectorStore
-6. Generator zwraca `event: chunks` — frontend wyświetla fragmenty w sidebarze
-7. Pipeline otwiera stream do Claude z promptem zawierającym fragmenty
-8. Każdy token od Claude → `event: token` → `useChat.onToken()` → `useTypewriter`
-   wyświetla znaki płynnie co 18 ms
-9. Po zakończeniu → `event: done` → `isStreaming = false`
-
----
-
-### Q2: Jak Twój pipeline RAG zapobiega halucynacjom?
-
-**Odpowiedź:**
-Dwa mechanizmy. Po pierwsze, `SYSTEM_PROMPT` w `pipeline.py` zawiera explicit instrukcję:
-„Answer using ONLY the provided document excerpts. Do not invent information."
-Po drugie, do kontekstu Claude trafia tylko zweryfikowana treść z plików Markdown.
-Model fizycznie nie może oprzeć odpowiedzi na wiedzy spoza dostarczonych fragmentów.
-Jeśli informacji nie ma w dokumentach, Claude jest instruowany by to powiedzieć wprost.
+**Answer:**
+1. User types a question in `ChatInput`, clicks Send
+2. `useChat.sendMessage()` calls `queryStream()` from `lib/api.ts`
+3. Frontend sends `POST /query/stream` with `{"question": "..."}` to FastAPI
+4. FastAPI via `Depends()` creates `RAGPipeline` with injected services
+5. `_retrieve()`: question is embedded via OpenAI, top-10 chunks
+   searched by cosine similarity in NumPy VectorStore
+6. Generator returns `event: chunks` — frontend displays fragments in sidebar
+7. Pipeline opens a stream to Claude with a prompt containing the fragments
+8. Each token from Claude → `event: token` → `useChat.onToken()` → `useTypewriter`
+   displays characters smoothly every 18 ms
+9. After completion → `event: done` → `isStreaming = false`
 
 ---
 
-### Q3: Dlaczego wybrałeś cosine similarity zamiast dot product?
+### Q2: How does your RAG pipeline prevent hallucinations?
 
-**Odpowiedź:**
-Dot product zależy od długości wektora — dłuższy tekst dałby wyższy wynik tylko przez
-swoją „siłę", nie przez semantyczne podobieństwo. Cosine similarity mierzy kąt między
-wektorami niezależnie od ich długości. W praktyce w `store.py` normalizujemy wektory
-i używamy operacji `@` (dot product) — po normalizacji obie miary są równoważne,
-ale semantycznie cosine jest poprawniejszym wyborem dla retrieval.
-
----
-
-### Q4: Co to jest chunk overlap i dlaczego ma znaczenie?
-
-**Odpowiedź:**
-Overlap to liczba słów wspólnych między sąsiednimi chunkami. W `chunker.py` używamy
-`CHUNK_SIZE_WORDS = 100` i `OVERLAP_WORDS = 50`, co daje krok 50 słów. Bez overlapu
-ważne zdanie mogłoby trafić dokładnie na granicę — byłoby przycięte w obu chunka
-i żaden nie zawierałby pełnego kontekstu. Overlap = 50 gwarantuje, że każde zdanie
-pojawi się kompletne w co najmniej jednym chunku. Trade-off: zwiększona liczba chunków
-i wyższy koszt embeddingów.
+**Answer:**
+Two mechanisms. First, `SYSTEM_PROMPT` in `pipeline.py` contains an explicit instruction:
+"Answer using ONLY the provided document excerpts. Do not invent information."
+Second, only verified content from Markdown files reaches Claude's context.
+The model physically cannot base its answer on knowledge outside the provided fragments.
+If information is not in the documents, Claude is instructed to say so explicitly.
 
 ---
 
-### Q5: Jak działa streaming od backendu do przeglądarki?
+### Q3: Why did you choose cosine similarity instead of dot product?
 
-**Odpowiedź:**
-Backend używa `StreamingResponse` z FastAPI i generatora `stream_query()`.
-Generator produkuje SSE events w formacie `event: <typ>\ndata: <json>\n\n`.
-FastAPI przekazuje te stringi bezpośrednio do TCP bez buforowania.
-Frontend używa `fetch()` z `res.body.getReader()` — `ReadableStream` API przeglądarki.
-Czyta bajty w pętli, dekoduje przez `TextDecoder` i parsuje po separatorze `\n\n`.
-Każdy kompletny event jest dispatchowany do callbacka (`onChunks`, `onToken`, `onDone`).
+**Answer:**
+Dot product depends on vector length — a longer text would give a higher score just because of
+its "magnitude", not semantic similarity. Cosine similarity measures the angle between
+vectors regardless of their length. In practice, in `store.py` we normalize vectors
+and use the `@` operation (dot product) — after normalization both measures are equivalent,
+but semantically cosine is the more correct choice for retrieval.
 
 ---
 
-### Q6: Jak byś zastąpił NumPy VectorStore pgvectorem na produkcji?
+### Q4: What is chunk overlap and why does it matter?
 
-**Odpowiedź:**
-`RAGPipeline` dostaje `VectorStore` przez konstruktor (DIP) — wystarczy stworzyć
-`PgVectorStore` z tymi samymi metodami `add()` i `search()`. W `add()`:
+**Answer:**
+Overlap is the number of words shared between adjacent chunks. In `chunker.py` we use
+`CHUNK_SIZE_WORDS = 100` and `OVERLAP_WORDS = 50`, giving a step of 50 words. Without overlap
+an important sentence could land exactly on the boundary — it would be cut in both chunks
+and neither would contain the full context. Overlap = 50 guarantees that every sentence
+appears complete in at least one chunk. Trade-off: increased number of chunks
+and higher embedding cost.
+
+---
+
+### Q5: How does streaming work from backend to browser?
+
+**Answer:**
+Backend uses `StreamingResponse` from FastAPI and the `stream_query()` generator.
+The generator produces SSE events in format `event: <type>\ndata: <json>\n\n`.
+FastAPI passes these strings directly to TCP without buffering.
+Frontend uses `fetch()` with `res.body.getReader()` — the browser's `ReadableStream` API.
+Reads bytes in a loop, decodes via `TextDecoder` and parses by `\n\n` separator.
+Each complete event is dispatched to a callback (`onChunks`, `onToken`, `onDone`).
+
+---
+
+### Q6: How would you replace the NumPy VectorStore with pgvector in production?
+
+**Answer:**
+`RAGPipeline` receives `VectorStore` via constructor (DIP) — it's enough to create
+a `PgVectorStore` with the same `add()` and `search()` methods. In `add()`:
 `INSERT INTO embeddings (text, source, embedding) VALUES (...)` (pgvector column).
-W `search()`: `SELECT * FROM embeddings ORDER BY embedding <=> $1 LIMIT $2`
-(operator cosine distance `<=>`). `RAGPipeline` nie wymaga żadnych zmian.
-Dodatkowy zysk: persystencja między restartami, indeks HNSW dla O(log N) search.
+In `search()`: `SELECT * FROM embeddings ORDER BY embedding <=> $1 LIMIT $2`
+(cosine distance operator `<=>`). `RAGPipeline` requires no changes.
+Additional benefit: persistence between restarts, HNSW index for O(log N) search.
 
 ---
 
-### Q7: Jakie zasady SOLID zastosowałeś i gdzie?
+### Q7: What SOLID principles did you apply and where?
 
-**Odpowiedź:**
-- **SRP** (`chunker.py`, `store.py`, `embeddings.py`): każda klasa ma jedną odpowiedzialność
-- **OCP** (`VectorStore`): można dodać `PgVectorStore` bez modyfikacji klientów
-- **DIP** (`pipeline.py`): `RAGPipeline` zależy od typów, nie od konkretnych klas —
-  wszystkie zależności wstrzykiwane przez konstruktor
-- **DIP** (`main.py`): FastAPI `Depends()` jako IoC container — framework
-  automatycznie rozwiązuje drzewo zależności
+**Answer:**
+- **SRP** (`chunker.py`, `store.py`, `embeddings.py`): each class has one responsibility
+- **OCP** (`VectorStore`): `PgVectorStore` can be added without modifying clients
+- **DIP** (`pipeline.py`): `RAGPipeline` depends on types, not on concrete classes —
+  all dependencies injected via constructor
+- **DIP** (`main.py`): FastAPI `Depends()` as IoC container — framework
+  automatically resolves the dependency tree
 
 ---
 
-### Q8: Jak byś dodał pamięć konwersacji?
+### Q8: How would you add conversation memory?
 
-**Odpowiedź:**
-Aktualnie każde pytanie jest niezależne. Żeby dodać multi-turn: w `QueryRequest`
-dodać pole `history: list[dict]`. W `build_prompt()` wstrzyknąć historię:
+**Answer:**
+Currently each question is independent. To add multi-turn: add a
+`history: list[dict]` field to `QueryRequest`. Inject history in `build_prompt()`:
 ```python
 history_text = "\n".join(f"{m['role']}: {m['content']}" for m in history[-3:])
-prompt = f"...\n\nHistoria:\n{history_text}\n\nPytanie: {question}"
+prompt = f"...\n\nHistory:\n{history_text}\n\nQuestion: {question}"
 ```
-Frontend `useChat` już przechowuje `messages` — wystarczy przekazywać ostatnie
-N wiadomości. Persystencja między sesjami: PostgreSQL + session ID w cookies.
+Frontend `useChat` already stores `messages` — just pass the last
+N messages. Persistence between sessions: PostgreSQL + session ID in cookies.
 
 ---
 
-### Q9: Co się dzieje gdy użytkownik pyta po polsku a dokumenty są po angielsku?
+### Q9: What happens when the user asks in Polish and documents are in English?
 
-**Odpowiedź:**
-Model `text-embedding-3-small` jest wielojęzyczny — mapuje semantycznie podobne
-koncepty w różnych językach na bliskie wektory. „Ile dni urlopu" ma wysokie
-podobieństwo do „annual leave days". Jednak cross-lingual semantic gap może być
-problemem dla słów różniących się semantyką (np. „komputer" vs „laptop").
-Rozwiązanie zastosowane w projekcie: zwiększenie `TOP_K_CHUNKS` z 5 do 10.
-Produkcyjne rozwiązanie: query translation — przetłumacz pytanie na EN przed embeddowaniem.
-Odpowiedź Claude jest zawsze w języku pytania dzięki `SYSTEM_PROMPT`.
-
----
-
-### Q10: Jak byś przeskalował to do 10 000 dokumentów?
-
-**Odpowiedź:**
-NumPy in-memory search jest liniowy O(N). Przy 10K dok × ~20 chunków = 200K chunków,
-pamięć RAM: ~200K × 1536 × 4 bajtów ≈ 1.2 GB — akceptowalne, ale search zaczyna
-być zauważalny. Rozwiązanie: pgvector z indeksem HNSW (O(log N), ~10 ms dla 1M wektorów).
-Potrzeba też asynchronicznego ingestion pipeline (Celery/background tasks) bo embed
-200K chunków przez OpenAI API trwa minuty. Cache popularnych pytań w Redis.
+**Answer:**
+The `text-embedding-3-small` model is multilingual — it maps semantically similar
+concepts in different languages to close vectors. "Ile dni urlopu" has high
+similarity to "annual leave days". However, cross-lingual semantic gap can be
+a problem for words differing in semantics (e.g. "komputer" vs "laptop").
+Solution applied in the project: increasing `TOP_K_CHUNKS` from 5 to 10.
+Production solution: query translation — translate the question to EN before embedding.
+Claude's response is always in the question's language thanks to `SYSTEM_PROMPT`.
 
 ---
 
-### Q11: Dlaczego FastAPI zamiast Flask lub Django?
+### Q10: How would you scale this to 10,000 documents?
 
-**Odpowiedź:**
-Flask jest synchroniczny — każdy request blokuje wątek, co przy długich wywołaniach
-LLM (kilka sekund) ogranicza przepustowość. Django to full-stack framework z ORM,
-templates, admin — overengineering dla prostego REST API bez bazy danych.
-FastAPI: async natywnie (`async def`), `Depends()` jako IoC container, Pydantic
-do walidacji requestów/response, `StreamingResponse` dla SSE, automatyczny Swagger UI.
-Wszystko czego potrzeba bez zbędnych warstw.
-
----
-
-### Q12: Jaka jest rola lifespan context manager w FastAPI?
-
-**Odpowiedź:**
-`lifespan` zastąpił przestarzałe `@app.on_event("startup")`. To async context manager
-który wykonuje kod przed `yield` przy starcie aplikacji (tu: auto-ingestion dokumentów
-do VectorStore) i kod po `yield` przy zatrzymaniu (cleanup zasobów).
-Kluczowe: jest objęty obsługą wyjątków — jeśli ingestion failuje, aplikacja startuje
-dalej (logujemy wyjątek, kontynuujemy bez zaindeksowanych dokumentów).
-W Dockerze z `restart: unless-stopped` kontener restartuje się i ponawia ingestion.
+**Answer:**
+NumPy in-memory search is linear O(N). With 10K docs × ~20 chunks = 200K chunks,
+RAM: ~200K × 1536 × 4 bytes ≈ 1.2 GB — acceptable, but search starts
+to be noticeable. Solution: pgvector with HNSW index (O(log N), ~10 ms for 1M vectors).
+An asynchronous ingestion pipeline (Celery/background tasks) is also needed because
+embedding 200K chunks via OpenAI API takes minutes. Cache popular queries in Redis.
 
 ---
 
-## 9. Co bym zrobił inaczej na produkcji
+### Q11: Why FastAPI instead of Flask or Django?
 
-### 1. Zastąpienie NumPy pgvectorem
+**Answer:**
+Flask is synchronous — each request blocks a thread, which with long LLM calls
+(several seconds) limits throughput. Django is a full-stack framework with ORM,
+templates, admin — overengineering for a simple REST API without a database.
+FastAPI: async natively (`async def`), `Depends()` as IoC container, Pydantic
+for request/response validation, `StreamingResponse` for SSE, automatic Swagger UI.
+Everything needed without unnecessary layers.
 
-**Ograniczenie:** In-memory — dane giną przy restarcie. Liniowy search O(N).
-**Rozwiązanie:** PostgreSQL + `pgvector` extension. Indeks HNSW → O(log N).
-Persystencja, filtrowanie po metadanych, możliwość skalowania.
+---
 
-### 2. Semantyczne chunking
+### Q12: What is the role of the lifespan context manager in FastAPI?
 
-**Ograniczenie:** Podział co 100 słów przecina zdania i paragrafy w losowych miejscach.
-**Rozwiązanie:** `RecursiveCharacterTextSplitter` (LangChain) dzielący po `\n\n`, `\n`,
-zdaniach — zachowuje semantyczne jednostki.
+**Answer:**
+`lifespan` replaced the deprecated `@app.on_event("startup")`. It's an async context manager
+that executes code before `yield` on application startup (here: auto-ingestion of documents
+into VectorStore) and code after `yield` on shutdown (resource cleanup).
+Key: it's wrapped in exception handling — if ingestion fails, the application starts
+anyway (we log the exception, continue without indexed documents).
+In Docker with `restart: unless-stopped` the container restarts and retries ingestion.
+
+---
+
+## 9. What I Would Do Differently in Production
+
+### 1. Replace NumPy with pgvector
+
+**Limitation:** In-memory — data lost on restart. Linear search O(N).
+**Solution:** PostgreSQL + `pgvector` extension. HNSW index → O(log N).
+Persistence, metadata filtering, scalability.
+
+### 2. Semantic chunking
+
+**Limitation:** Splitting every 100 words cuts sentences and paragraphs at random points.
+**Solution:** `RecursiveCharacterTextSplitter` (LangChain) splitting on `\n\n`, `\n`,
+sentences — preserves semantic units.
 
 ### 3. Hybrid Search (BM25 + vector)
 
-**Ograniczenie:** Pure vector search słabo radzi sobie z dokładnymi słowami kluczowymi,
-nazwami własnymi i cross-lingual semantic gap.
-**Rozwiązanie:** BM25 (keyword matching) + vector search z Reciprocal Rank Fusion (RRF).
-pgvector + `pg_bm25` lub Elasticsearch/OpenSearch.
+**Limitation:** Pure vector search handles exact keywords,
+proper nouns, and cross-lingual semantic gap poorly.
+**Solution:** BM25 (keyword matching) + vector search with Reciprocal Rank Fusion (RRF).
+pgvector + `pg_bm25` or Elasticsearch/OpenSearch.
 
-### 4. Autentykacja
+### 4. Authentication
 
-**Ograniczenie:** Każdy z dostępem do URL ponosi koszty API firmy.
-**Rozwiązanie:** NextAuth.js (OAuth z Google Workspace) + middleware sprawdzające sesję.
-JWT token w headerze `Authorization` weryfikowany przez FastAPI.
+**Limitation:** Anyone with the URL incurs the company's API costs.
+**Solution:** NextAuth.js (OAuth with Google Workspace) + middleware checking session.
+JWT token in `Authorization` header verified by FastAPI.
 
-### 5. Persystencja konwersacji (multi-turn)
+### 5. Conversation persistence (multi-turn)
 
-**Ograniczenie:** Każde pytanie jest niezależne — model nie pamięta kontekstu sesji.
-**Rozwiązanie:** Session ID w cookies, historia wiadomości w PostgreSQL.
-Ostatnie N wiadomości dołączane do promptu.
+**Limitation:** Each question is independent — model does not remember session context.
+**Solution:** Session ID in cookies, message history in PostgreSQL.
+Last N messages appended to the prompt.
 
-### 6. Query Translation dla Cross-lingual Retrieval
+### 6. Query Translation for Cross-lingual Retrieval
 
-**Ograniczenie:** Pytania po polsku mogą nie trafiać na angielskie fragmenty.
-**Rozwiązanie:** Przed embeddowaniem — szybki call do Claude/GPT-4o-mini:
-„Translate to English: {question}". Embeddujemy przetłumaczone pytanie.
+**Limitation:** Polish questions may not match English fragments.
+**Solution:** Before embedding — a quick call to Claude/GPT-4o-mini:
+"Translate to English: {question}". Embed the translated question.
 
 ### 7. Audit Logging
 
-**Ograniczenie:** Brak logowania kto pytał, kiedy, o co i jakie fragmenty użyto.
-**Rozwiązanie:** Log każdego query do bazy: `user_id`, `question`, `retrieved_chunks`,
-`answer`, `timestamp`, `model`, `tokens_used`. Wymagane dla compliance (RODO, audyt).
+**Limitation:** No logging of who asked, when, what, and which fragments were used.
+**Solution:** Log every query to the database: `user_id`, `question`, `retrieved_chunks`,
+`answer`, `timestamp`, `model`, `tokens_used`. Required for compliance (GDPR, audit).
 
 ### 8. Rate Limiting
 
-**Ograniczenie:** Jeden użytkownik może wygenerować nieograniczone koszty API.
-**Rozwiązanie:** `slowapi` (FastAPI middleware) + Redis → np. 20 requestów/minutę.
+**Limitation:** One user can generate unlimited API costs.
+**Solution:** `slowapi` (FastAPI middleware) + Redis → e.g. 20 requests/minute.
 
 ### 9. Observability
 
-**Ograniczenie:** Logi tylko w stdout kontenera — brak metryk, tracing, alertów.
-**Rozwiązanie:** OpenTelemetry SDK → Datadog/Grafana. Metryki: latencja query,
-koszt tokenów per request, retrieval hit rate. Alerty gdy koszt API przekroczy próg.
+**Limitation:** Logs only in container stdout — no metrics, tracing, alerts.
+**Solution:** OpenTelemetry SDK → Datadog/Grafana. Metrics: query latency,
+token cost per request, retrieval hit rate. Alerts when API cost exceeds threshold.
 
 ---
 
-## 10. Słowniczek
+## 10. Glossary
 
-| Termin | Definicja w kontekście projektu |
+| Term | Definition in project context |
 |---|---|
-| **RAG** | Retrieval-Augmented Generation — architektura gdzie LLM odpowiada na pytania na podstawie dokumentów pobranych w czasie rzeczywistym, nie z pamięci modelu |
-| **LLM** | Large Language Model — model językowy (tu: Claude) generujący tekst na podstawie promptu |
-| **Embedding** | Reprezentacja tekstu jako wektor liczb (1536 float32) — semantycznie podobne teksty mają bliskie wektory |
-| **Wektor** | Lista liczb zmiennoprzecinkowych reprezentująca tekst w przestrzeni wielowymiarowej |
-| **Cosine similarity** | Miara podobieństwa dwóch wektorów (cosinus kąta) — 1.0 = identyczne, 0.0 = ortogonalne |
-| **Chunking** | Podział długich dokumentów na mniejsze fragmenty do osobnego indeksowania |
-| **Overlap** | Liczba słów wspólnych między sąsiednimi chunkami — zapobiega utracie informacji na granicach |
-| **Prompt injection** | Atak gdzie użytkownik wstrzykuje instrukcje dla LLM w treści pytania |
-| **Context window** | Maksymalna liczba tokenów widoczna przez LLM — prompt + dokumenty + pytanie |
-| **Halucynacja** | LLM generuje przekonująco brzmiące, ale fałszywe informacje |
-| **SSE** | Server-Sent Events — protokół HTTP do jednostronnego streamingu serwer → klient |
-| **Streaming** | Wysyłanie odpowiedzi partiami w czasie rzeczywistym zamiast czekania na całość |
-| **SOLID** | 5 zasad OOP: Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion |
-| **DRY** | Don't Repeat Yourself — każda logika w jednym miejscu, nie duplikowana |
-| **Dependency Injection** | Wzorzec gdzie obiekt dostaje zależności z zewnątrz zamiast tworzyć je sam |
-| **lifespan event** | FastAPI context manager wykonujący kod przy starcie i zatrzymaniu aplikacji |
-| **CORS** | Cross-Origin Resource Sharing — mechanizm bezpieczeństwa przeglądarki blokujący cross-origin requesty |
-| **Docker Compose** | Narzędzie do uruchamiania wielu kontenerów jako jeden serwis ze wspólną siecią |
-| **Healthcheck** | Endpoint `/health` zwracający status aplikacji — używany przez load balancery i monitoring |
-| **Conventional commits** | Standard formatowania: `feat:`, `fix:`, `chore:`, `docs:` — czytelna historia git |
-| **Top-k retrieval** | Pobieranie k najbardziej podobnych chunków (tu: `TOP_K_CHUNKS = 10`) |
-| **text-embedding-3-small** | Model OpenAI generujący embeddingi — wielojęzyczny, 1536 dim, dobry stosunek ceny do jakości |
-| **claude-sonnet-4** | Model Anthropic użyty do generowania odpowiedzi w tym projekcie |
-| **HNSW** | Hierarchical Navigable Small World — algorytm indeksowania wektorów, O(log N) search w pgvector |
-| **IoC container** | Inversion of Control container — mechanizm (tu: `Depends()` w FastAPI) automatycznie rozwiązujący zależności |
+| **RAG** | Retrieval-Augmented Generation — architecture where LLM answers questions based on documents retrieved in real time, not from model memory |
+| **LLM** | Large Language Model — language model (here: Claude) generating text based on a prompt |
+| **Embedding** | Text representation as a vector of numbers (1536 float32) — semantically similar texts have close vectors |
+| **Vector** | List of floating-point numbers representing text in multidimensional space |
+| **Cosine similarity** | Measure of similarity between two vectors (cosine of angle) — 1.0 = identical, 0.0 = orthogonal |
+| **Chunking** | Division of long documents into smaller fragments for individual indexing |
+| **Overlap** | Number of words shared between adjacent chunks — prevents information loss at boundaries |
+| **Prompt injection** | Attack where user injects instructions for the LLM in the question content |
+| **Context window** | Maximum number of tokens visible to the LLM — prompt + documents + question |
+| **Hallucination** | LLM generates convincingly sounding but false information |
+| **SSE** | Server-Sent Events — HTTP protocol for one-way streaming from server to client |
+| **Streaming** | Sending responses in chunks in real time instead of waiting for the whole response |
+| **SOLID** | 5 OOP principles: Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion |
+| **DRY** | Don't Repeat Yourself — every logic in one place, not duplicated |
+| **Dependency Injection** | Pattern where an object receives its dependencies from outside instead of creating them itself |
+| **lifespan event** | FastAPI context manager executing code on application startup and shutdown |
+| **CORS** | Cross-Origin Resource Sharing — browser security mechanism blocking cross-origin requests |
+| **Docker Compose** | Tool for running multiple containers as one service with a shared network |
+| **Healthcheck** | `/health` endpoint returning application status — used by load balancers and monitoring |
+| **Conventional commits** | Formatting standard: `feat:`, `fix:`, `chore:`, `docs:` — readable git history |
+| **Top-k retrieval** | Fetching k most similar chunks (here: `TOP_K_CHUNKS = 10`) |
+| **text-embedding-3-small** | OpenAI model generating embeddings — multilingual, 1536 dim, good price-to-quality ratio |
+| **claude-sonnet-4** | Anthropic model used for generating answers in this project |
+| **HNSW** | Hierarchical Navigable Small World — vector indexing algorithm, O(log N) search in pgvector |
+| **IoC container** | Inversion of Control container — mechanism (here: `Depends()` in FastAPI) automatically resolving dependencies |
